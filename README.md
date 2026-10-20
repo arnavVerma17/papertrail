@@ -2,6 +2,10 @@
 
 Papertrail helps you search a set of research PDFs and inspect the page behind each result. It extracts PDF text, keeps page numbers, and ranks passages with TF-IDF or a local sentence embedding model. It can also draft extractive or locally generated answers with source citations.
 
+## Live demo
+
+[Open Papertrail](https://papertrail-lowkey.streamlit.app/)
+
 ## Run locally
 
 ```powershell
@@ -46,7 +50,7 @@ Upload PDFs from the sidebar and click **Add / re-index selected PDFs**. New fil
 1. Add semantic retrieval with sentence embeddings and compare it against TF-IDF. *(Complete)*
 2. Add abstractive answer generation from retrieved passages with citations and abstention. *(First local version complete; review outputs against cited sources.)*
 3. Expand the evaluation set with more labeled papers and questions.
-4. Polish the portfolio demo and deployment workflow. *(Demo guide and Docker setup ready; hosted deployment remains.)*
+4. Polish the portfolio demo and deployment workflow. *(Hosted deployment complete.)*
 
 See [DEMO.md](DEMO.md) for a one-minute product walkthrough, architecture diagram, and presentation notes.
 

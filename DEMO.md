@@ -1,5 +1,9 @@
 # Papertrail demo guide
 
+## Live demo
+
+[Open Papertrail](https://papertrail-lowkey.streamlit.app/)
+
 ## One-minute overview
 
 Papertrail is a source-first research workspace for searching PDF papers. It combines keyword retrieval with local sentence embeddings, keeps page-level citations, and lets readers compare evidence before reviewing an optional answer draft.
