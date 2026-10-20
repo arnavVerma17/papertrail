@@ -13,7 +13,7 @@ Papertrail is a source-first research workspace for searching PDF papers. It com
 1. Add two or three research PDFs in the sidebar and build the library index.
 2. Enter a concept question using wording that differs from the papers, choose a retrieval method, and click **Search papers**. Compare **Semantic**, **TF-IDF**, and **Compare** to see where the rankings differ.
 3. Open a result and verify its source and page. Choose an extractive answer first, then try **Abstractive** and inspect every cited passage.
-4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions and compare Hit@k, MRR, answer coverage, and abstention on questions the papers cannot answer.
+4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, MRR, answer coverage, and abstention on questions the papers cannot answer.
 5. For an image-only scan, re-index it with **OCR scanned pages** enabled.
 
 ## What to emphasize
@@ -22,6 +22,20 @@ Papertrail is a source-first research workspace for searching PDF papers. It com
 - Every passage stays attached to its source file and PDF page.
 - The answer generator receives retrieved passages and is instructed to cite them; readers should still check those citations against the paper.
 - Documents and evaluation labels live in the Streamlit session. The Docker volume stores model files, not uploaded PDFs.
+- Export labeled questions as CSV to keep a reusable evaluation set; imported source filenames and page numbers must match the currently indexed PDFs.
+
+## Evaluation CSV
+
+After indexing the PDFs you want to evaluate, choose **Download evaluation CSV template** in **Evaluate retrieval**. Add one test question per row using these columns:
+
+| Column | Meaning |
+|---|---|
+| `query` | The question or information need to search for |
+| `source` | Exact uploaded PDF filename containing relevant evidence; leave blank if unanswerable |
+| `page` | One-based PDF page number expected to be relevant; leave blank if unanswerable |
+| `answerable` | `true` if the indexed papers support an answer, otherwise `false` |
+
+For an unanswerable question, set `answerable` to `false` and leave `source` and `page` blank. Import the CSV into a session with the matching PDFs indexed. Papertrail checks that each answerable label points to an indexed source page, adds new cases, and skips duplicates. Keep the CSV file to reuse the labels in later sessions.
 
 ## Architecture
 

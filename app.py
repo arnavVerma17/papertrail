@@ -1,10 +1,16 @@
+import csv
 from collections import Counter
 
 import streamlit as st
 
 from research_assistant.pdfs import TextChunk, extract_chunks
 from research_assistant.search import embed_chunks, extract_grounded_answer, load_embedding_model, search_chunks, semantic_search_chunks
-from research_assistant.evaluation import EvaluationCase, score_case
+from research_assistant.evaluation import (
+    EvaluationCase,
+    parse_evaluation_cases,
+    score_case,
+    serialize_evaluation_cases,
+)
 from research_assistant.generation import generate_grounded_answer, load_generator
 
 
@@ -292,8 +298,8 @@ with st.expander("Evaluate retrieval"):
             eval_query = st.text_input("Test question")
             expected_page = st.selectbox(
                 "Expected relevant page",
-                available_pages,
-                format_func=lambda item: f"{item[0]} · page {item[1]}",
+                [None, *available_pages],
+                format_func=lambda item: "No supporting page (unanswerable)" if item is None else f"{item[0]} · page {item[1]}",
             )
             expected_answerable = st.selectbox(
                 "Should these papers support an answer?",
@@ -302,10 +308,71 @@ with st.expander("Evaluate retrieval"):
             )
             add_case = st.form_submit_button("Add evaluation case")
         if add_case and eval_query.strip():
-            st.session_state.evaluation_cases.append(
-                EvaluationCase(eval_query.strip(), expected_page[0], expected_page[1], expected_answerable)
-            )
-            st.success("Evaluation case added.")
+            if expected_answerable and expected_page is None:
+                st.warning("Choose the expected relevant page for an answerable question.")
+            else:
+                source, page = expected_page if expected_page is not None else (None, None)
+                st.session_state.evaluation_cases.append(
+                    EvaluationCase(eval_query.strip(), source, page, expected_answerable)
+                )
+                st.success("Evaluation case added.")
+
+        st.download_button(
+            "Download evaluation CSV template",
+            data=serialize_evaluation_cases(st.session_state.evaluation_cases),
+            file_name="papertrail-evaluation.csv",
+            mime="text/csv",
+            help="The CSV includes your current labels, or just the column headers if none have been added yet.",
+        )
+        with st.form("evaluation_import_form"):
+            uploaded_cases = st.file_uploader("Import labeled evaluation cases", type=["csv"])
+            import_cases = st.form_submit_button("Add cases from CSV")
+        if import_cases:
+            if uploaded_cases is None:
+                st.warning("Choose a CSV file first.")
+            elif uploaded_cases.size > 1_000_000:
+                st.error("Evaluation CSV must be smaller than 1 MB.")
+            else:
+                try:
+                    imported_cases = parse_evaluation_cases(
+                        uploaded_cases.getvalue().decode("utf-8-sig")
+                    )
+                    indexed_pages = {(chunk.source, chunk.page) for chunk in chunks}
+                    missing_pages = sorted(
+                        {
+                            (case.source, case.page)
+                            for case in imported_cases
+                            if case.answerable and case.source and case.page is not None
+                        }
+                        - indexed_pages
+                    )
+                    if missing_pages:
+                        missing_label = ", ".join(
+                            f"{source} · page {page}" for source, page in missing_pages[:5]
+                        )
+                        extra = " and more" if len(missing_pages) > 5 else ""
+                        st.error(
+                            "These source pages are not in the current indexed library: "
+                            f"{missing_label}{extra}. Check filenames and page numbers."
+                        )
+                    else:
+                        known_cases = {
+                            (case.query, case.source, case.page, case.answerable)
+                            for case in st.session_state.evaluation_cases
+                        }
+                        new_cases = []
+                        for case in imported_cases:
+                            case_key = (case.query, case.source, case.page, case.answerable)
+                            if case_key not in known_cases:
+                                new_cases.append(case)
+                                known_cases.add(case_key)
+                        st.session_state.evaluation_cases.extend(new_cases)
+                        st.success(
+                            f"Added {len(new_cases)} new case(s); "
+                            f"skipped {len(imported_cases) - len(new_cases)} duplicate(s)."
+                        )
+                except (UnicodeDecodeError, csv.Error, ValueError) as error:
+                    st.error(f"Could not import evaluation CSV: {error}")
 
         cases = st.session_state.evaluation_cases
         reviews = list(st.session_state.answer_reviews.values())
@@ -317,7 +384,10 @@ with st.expander("Evaluate retrieval"):
             st.write(f"{len(cases)} labeled question(s) in this session")
             for case in cases:
                 expectation = "answerable" if case.answerable else "should abstain"
-                st.caption(f"“{case.query}” → {case.source}, page {case.page} · {expectation}")
+                expected_page_label = (
+                    f"{case.source}, page {case.page}" if case.answerable else "no supporting page expected"
+                )
+                st.caption(f"“{case.query}” → {expected_page_label} · {expectation}")
             if st.button("Clear evaluation cases"):
                 st.session_state.evaluation_cases = []
                 st.rerun()

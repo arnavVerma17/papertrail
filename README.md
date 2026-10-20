@@ -38,6 +38,7 @@ Upload PDFs from the sidebar and click **Add / re-index selected PDFs**. New fil
 - Extractive answer drafts with page citations and an abstain option
 - Optional abstractive answer drafts from retrieved passages, with passage citations
 - Session based evaluation with Hit@k, MRR, answer coverage, abstention, and citation reviews
+- Downloadable and importable CSV evaluation sets tied to exact source filenames and pages
 - Manual supported/unsupported answer reviews summarized in-session
 - Native, branded light and dark themes
 - Batched search form and guided empty-library experience
@@ -49,7 +50,7 @@ Upload PDFs from the sidebar and click **Add / re-index selected PDFs**. New fil
 
 1. Add semantic retrieval with sentence embeddings and compare it against TF-IDF. *(Complete)*
 2. Add abstractive answer generation from retrieved passages with citations and abstention. *(First local version complete; review outputs against cited sources.)*
-3. Expand the evaluation set with more labeled papers and questions.
+3. Expand the evaluation set with more labeled papers and questions. *(Reusable CSV workflow complete; add and review labels from real papers.)*
 4. Polish the portfolio demo and deployment workflow. *(Hosted deployment complete.)*
 
 See [DEMO.md](DEMO.md) for a one-minute product walkthrough, architecture diagram, and presentation notes.
