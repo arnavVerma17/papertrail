@@ -37,6 +37,8 @@ After indexing the PDFs you want to evaluate, choose **Download evaluation CSV t
 
 For an unanswerable question, set `answerable` to `false` and leave `source` and `page` blank. Import the CSV into a session with the matching PDFs indexed. Papertrail checks that each answerable label points to an indexed source page, adds new cases, and skips duplicates. Keep the CSV file to reuse the labels in later sessions.
 
+For a ready-made comparison, use the [two-paper Transformer starter set](data/evaluation/README.md). Download the linked arXiv PDFs, rename them to the filenames listed there, upload both into Papertrail, and import `data/evaluation/transformer_starter.csv`.
+
 ## Architecture
 
 ```mermaid
