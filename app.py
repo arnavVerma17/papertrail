@@ -7,8 +7,9 @@ from research_assistant.pdfs import TextChunk, extract_chunks
 from research_assistant.search import embed_chunks, extract_grounded_answer, load_embedding_model, search_chunks, semantic_search_chunks
 from research_assistant.evaluation import (
     EvaluationCase,
+    group_evaluation_cases,
     parse_evaluation_cases,
-    score_case,
+    score_query,
     serialize_evaluation_cases,
 )
 from research_assistant.generation import generate_grounded_answer, load_generator
@@ -289,7 +290,7 @@ else:
     st.info("Start by adding a few papers in the sidebar, then search for a concept, method, or finding.")
 
 with st.expander("Evaluate retrieval"):
-    st.caption("Add queries with a source page you expect to be relevant. These labels stay in this app session.")
+    st.caption("Label each relevant page for a query. Repeated query labels count as one question; these labels stay in this app session.")
     if not chunks:
         st.info("Index PDFs first to create evaluation cases.")
     else:
@@ -312,10 +313,23 @@ with st.expander("Evaluate retrieval"):
                 st.warning("Choose the expected relevant page for an answerable question.")
             else:
                 source, page = expected_page if expected_page is not None else (None, None)
-                st.session_state.evaluation_cases.append(
-                    EvaluationCase(eval_query.strip(), source, page, expected_answerable)
-                )
-                st.success("Evaluation case added.")
+                new_case = EvaluationCase(eval_query.strip(), source, page, expected_answerable)
+                same_query = [
+                    case
+                    for case in st.session_state.evaluation_cases
+                    if case.query == new_case.query
+                ]
+                if same_query and any(case.answerable != new_case.answerable for case in same_query):
+                    st.warning("This query already has a different answerability label.")
+                elif any(
+                    (case.source, case.page, case.answerable)
+                    == (new_case.source, new_case.page, new_case.answerable)
+                    for case in same_query
+                ):
+                    st.info("That query and page are already labeled.")
+                else:
+                    st.session_state.evaluation_cases.append(new_case)
+                    st.success("Evidence page added to the evaluation set.")
 
         st.download_button(
             "Download evaluation CSV template",
@@ -381,44 +395,64 @@ with st.expander("Evaluate retrieval"):
             support_rate = supported / len(reviews)
             st.caption(f"Answer review: {support_rate:.0%} supported · {1 - support_rate:.0%} marked unsupported ({len(reviews)} question(s)).")
         if cases:
-            st.write(f"{len(cases)} labeled question(s) in this session")
-            for case in cases:
-                expectation = "answerable" if case.answerable else "should abstain"
-                expected_page_label = (
-                    f"{case.source}, page {case.page}" if case.answerable else "no supporting page expected"
+            case_groups = group_evaluation_cases(cases)
+            st.write(
+                f"{len(case_groups)} labeled question(s) across "
+                f"{len(cases)} evidence label(s) in this session"
+            )
+            for query, query_cases in case_groups.items():
+                expectation = "answerable" if query_cases[0].answerable else "should abstain"
+                expected_pages = (
+                    ", ".join(
+                        f"{case.source}, page {case.page}"
+                        for case in query_cases
+                        if case.source and case.page is not None
+                    )
+                    if query_cases[0].answerable
+                    else "no supporting page expected"
                 )
-                st.caption(f"“{case.query}” → {expected_page_label} · {expectation}")
+                st.caption(f"“{query}” → {expected_pages} · {expectation}")
             if st.button("Clear evaluation cases"):
                 st.session_state.evaluation_cases = []
                 st.rerun()
             eval_k = st.slider("Evaluate top results", 1, 10, 5, key="eval_k")
             if st.button("Run retrieval evaluation", type="primary"):
-                answerable_cases = [case for case in cases if case.answerable]
+                case_groups = group_evaluation_cases(cases)
+                answerable_cases = {
+                    query: query_cases
+                    for query, query_cases in case_groups.items()
+                    if query_cases[0].answerable
+                }
                 strategies = [("TF-IDF", lambda q: search_chunks(chunks, q, eval_k))]
                 if st.session_state.embeddings is not None:
                     model = get_embedding_model()
                     strategies.append(("Semantic", lambda q: semantic_search_chunks(chunks, q, st.session_state.embeddings, model, eval_k)))
                 for strategy_name, retrieve in strategies:
                     if answerable_cases:
-                        outcomes = [score_case(retrieve(case.query), case) for case in answerable_cases]
+                        outcomes = [
+                            score_query(retrieve(query), query_cases)
+                            for query, query_cases in answerable_cases.items()
+                        ]
                         hit_rate = sum(hit for hit, _ in outcomes) / len(outcomes)
                         mrr = sum(reciprocal_rank for _, reciprocal_rank in outcomes) / len(outcomes)
                         st.markdown(f"**{strategy_name}** · Hit@{eval_k}: {hit_rate:.0%} · MRR: {mrr:.3f}")
-                unanswerable_cases = [case for case in cases if not case.answerable]
-                judged_unanswerable = [case for case in unanswerable_cases if case.query in st.session_state.answer_outcomes]
+                unanswerable_queries = {
+                    query for query, query_cases in case_groups.items() if not query_cases[0].answerable
+                }
+                judged_unanswerable = unanswerable_queries & set(st.session_state.answer_outcomes)
                 if judged_unanswerable:
-                    false_answers = sum(st.session_state.answer_outcomes[case.query] for case in judged_unanswerable)
+                    false_answers = sum(st.session_state.answer_outcomes[query] for query in judged_unanswerable)
                     st.markdown(f"**Abstention check** · Unsupported answer rate on unanswerable questions: {false_answers / len(judged_unanswerable):.0%} ({len(judged_unanswerable)} evaluated)")
-                elif unanswerable_cases:
+                elif unanswerable_queries:
                     st.info("Run the abstractive answer option on your unanswerable questions to measure whether it abstains.")
-                judged_answerable = [case for case in answerable_cases if case.query in st.session_state.answer_outcomes]
+                judged_answerable = set(answerable_cases) & set(st.session_state.answer_outcomes)
                 if judged_answerable:
-                    answered = sum(st.session_state.answer_outcomes[case.query] for case in judged_answerable)
+                    answered = sum(st.session_state.answer_outcomes[query] for query in judged_answerable)
                     st.markdown(f"**Answer coverage** · Answerable questions answered: {answered / len(judged_answerable):.0%} ({len(judged_answerable)} evaluated)")
-                reviewed_cases = [case for case in cases if case.query in st.session_state.answer_reviews]
-                if reviewed_cases:
-                    supported_reviews = sum(st.session_state.answer_reviews[case.query] == "Supported" for case in reviewed_cases)
-                    st.markdown(f"**Citation support** · {supported_reviews / len(reviewed_cases):.0%} supported ({len(reviewed_cases)} reviewed answers)")
+                reviewed_queries = set(case_groups) & set(st.session_state.answer_reviews)
+                if reviewed_queries:
+                    supported_reviews = sum(st.session_state.answer_reviews[query] == "Supported" for query in reviewed_queries)
+                    st.markdown(f"**Citation support** · {supported_reviews / len(reviewed_queries):.0%} supported ({len(reviewed_queries)} reviewed answers)")
                 if st.session_state.embeddings is None:
                     st.info("Semantic evaluation is unavailable until semantic indexing succeeds.")
         else:

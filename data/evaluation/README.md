@@ -1,6 +1,8 @@
 # Starter evaluation set
 
-`transformer_starter.csv` contains six answerable retrieval questions and two questions that should be unanswerable from the two listed papers. The page labels use the PDF's one-based page numbers.
+`transformer_starter.csv` contains eight unique questions: six answerable and two that should be unanswerable from the two listed papers. One answerable question has relevant evidence on two pages. The page labels use the PDF's one-based page numbers.
+
+When a query appears on multiple CSV rows, each row marks another relevant page. Papertrail groups those labels into one question for Hit@k and MRR.
 
 ## Source PDFs
 

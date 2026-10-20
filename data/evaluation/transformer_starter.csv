@@ -1,5 +1,6 @@
 query,source,page,answerable
 "Why does the paper argue that standard BERT sentence-pair comparison is too expensive for searching 10,000 sentences?",Sentence-BERT.pdf,1,true
+"Why does the paper argue that standard BERT sentence-pair comparison is too expensive for searching 10,000 sentences?",Sentence-BERT.pdf,2,true
 "Which pooling strategy is the default for producing a fixed-size Sentence-BERT embedding?",Sentence-BERT.pdf,3,true
 "How does Sentence-BERT compare with the Universal Sentence Encoder on average across the listed STS tasks?",Sentence-BERT.pdf,4,true
 "How many parallel attention heads does the Transformer base model use?",Attention-Is-All-You-Need.pdf,5,true

@@ -40,6 +40,7 @@ def parse_evaluation_cases(csv_text: str) -> list[EvaluationCase]:
         raise ValueError(f"CSV is missing required column(s): {', '.join(sorted(missing))}.")
 
     cases = []
+    query_answerability = {}
     boolean_values = {
         "true": True,
         "yes": True,
@@ -78,17 +79,39 @@ def parse_evaluation_cases(csv_text: str) -> list[EvaluationCase]:
                 raise ValueError(f"Row {line_number} must have a whole-number page.") from error
             if page < 1:
                 raise ValueError(f"Row {line_number} page must be 1 or greater.")
+        previous_answerability = query_answerability.get(query)
+        if previous_answerability is not None and previous_answerability != answerable:
+            raise ValueError(f"Query on row {line_number} has conflicting answerable labels.")
+        query_answerability[query] = answerable
         cases.append(EvaluationCase(query, source or None, page, answerable))
     if not cases:
         raise ValueError("CSV contains no evaluation cases.")
     return cases
 
 
-def score_case(results: list[tuple[TextChunk, float]], case: EvaluationCase) -> tuple[bool, float]:
-    """Return hit@k and reciprocal rank for one expected source page."""
-    if not case.answerable or not case.source or case.page is None:
+def group_evaluation_cases(cases: list[EvaluationCase]) -> dict[str, list[EvaluationCase]]:
+    """Group page-level labels into one relevance set per query."""
+    groups: dict[str, list[EvaluationCase]] = {}
+    for case in cases:
+        group = groups.setdefault(case.query, [])
+        if group and group[0].answerable != case.answerable:
+            raise ValueError(f"Query {case.query!r} has conflicting answerable labels.")
+        group.append(case)
+    return groups
+
+
+def score_query(
+    results: list[tuple[TextChunk, float]], cases: list[EvaluationCase]
+) -> tuple[bool, float]:
+    """Score a query as relevant when any labeled source page is retrieved."""
+    relevant_pages = {
+        (case.source, case.page)
+        for case in cases
+        if case.answerable and case.source and case.page is not None
+    }
+    if not relevant_pages:
         return False, 0.0
     for rank, (chunk, _) in enumerate(results, start=1):
-        if chunk.source == case.source and chunk.page == case.page:
+        if (chunk.source, chunk.page) in relevant_pages:
             return True, 1 / rank
     return False, 0.0

@@ -35,7 +35,7 @@ After indexing the PDFs you want to evaluate, choose **Download evaluation CSV t
 | `page` | One-based PDF page number expected to be relevant; leave blank if unanswerable |
 | `answerable` | `true` if the indexed papers support an answer, otherwise `false` |
 
-For an unanswerable question, set `answerable` to `false` and leave `source` and `page` blank. Import the CSV into a session with the matching PDFs indexed. Papertrail checks that each answerable label points to an indexed source page, adds new cases, and skips duplicates. Keep the CSV file to reuse the labels in later sessions.
+If one question has relevant evidence on more than one page or PDF, repeat its `query` on a separate row for each relevant page. Papertrail groups those rows into one evaluation question and counts a hit when any labeled page is retrieved. For an unanswerable question, set `answerable` to `false` and leave `source` and `page` blank. Import the CSV into a session with the matching PDFs indexed. Papertrail checks that each answerable label points to an indexed source page, adds new cases, and skips duplicates. Keep the CSV file to reuse the labels in later sessions.
 
 For a ready-made comparison, use the [two-paper Transformer starter set](data/evaluation/README.md). Download the linked arXiv PDFs, rename them to the filenames listed there, upload both into Papertrail, and import `data/evaluation/transformer_starter.csv`.
 
