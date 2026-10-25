@@ -1,6 +1,6 @@
 # Papertrail — grounded research assistant
 
-Papertrail helps you search a set of research PDFs and inspect the page behind each result. It extracts PDF text, keeps page numbers, and ranks passages with TF-IDF or a local sentence embedding model. It can also draft extractive or locally generated answers with source citations.
+Papertrail helps you search research documents and inspect the source behind each result. It extracts text from PDF, DOCX, PPTX, TXT, and Markdown files, then ranks passages with TF-IDF or a local sentence embedding model. Citations point to PDF pages, PowerPoint slides, or document passages. It can also draft extractive or locally generated answers with source citations.
 
 ## Live demo
 
@@ -27,15 +27,16 @@ Open [http://localhost:8501](http://localhost:8501). The image includes Tesserac
 
 The Compose port is bound to localhost. For a remote deployment, put Papertrail behind an access-controlled reverse proxy and forward traffic to port 8501; the app itself does not provide user authentication. To use another OCR language in Docker, add its Tesseract language package to the Dockerfile and rebuild.
 
-Upload PDFs from the sidebar and click **Add / re-index selected PDFs**. New files join the current session library; a selected file with the same name replaces its earlier version. Use **×** beside a document to remove it. Updating the library rebuilds its index and clears evaluation labels and answer reviews tied to the previous document set. Choose semantic search, TF-IDF keyword search, or compare both. Semantic search uses `sentence-transformers/all-MiniLM-L6-v2`; it downloads the model the first time the index is built, then runs locally. Choose **Abstractive (local model)** and click **Generate grounded answer** to draft a cited answer with `google/flan-t5-small`; its model weights download on first use. Files are processed in memory for the current app session. For scanned pages, turn on **OCR scanned pages** before indexing; Tesseract and the selected language data must be installed locally.
+Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add / re-index selected documents**. New files join the current session library; a selected file with the same name replaces its earlier version. Use **×** beside a document to remove it. Updating the library rebuilds its index and clears evaluation labels and answer reviews tied to the previous document set. Choose semantic search, TF-IDF keyword search, or compare both. Semantic search uses `sentence-transformers/all-MiniLM-L6-v2`; it downloads the model the first time the index is built, then runs locally. Choose **Abstractive (local model)** and click **Generate grounded answer** to draft a cited answer with `google/flan-t5-small`; its model weights download on first use. Files are processed in memory for the current app session. For scanned PDFs, turn on **OCR scanned PDFs** before indexing; Tesseract and the selected language data must be installed locally.
 
 ## Current features
 
-- Page-aware PDF text extraction
+- PDF extraction with optional OCR; DOCX, PPTX, TXT, and Markdown text extraction
+- Source-aware citations for PDF pages, PowerPoint slides, and document passages
 - Question-aware passage chunking for numbered Q&A PDFs, with overlap for longer answers
 - Local TF-IDF and sentence embedding retrieval, with no API key required
 - Side-by-side retrieval comparison
-- Extractive answer drafts with page citations and an abstain option
+- Extractive answer drafts with source-location citations and an abstain option
 - Optional abstractive answer drafts from retrieved passages, with passage citations
 - Session based evaluation with Hit@k, MRR, answer coverage, abstention, and citation reviews
 - Downloadable and importable CSV evaluation sets with multiple relevant pages per question
@@ -45,7 +46,7 @@ Upload PDFs from the sidebar and click **Add / re-index selected PDFs**. New fil
 - Batched search form and guided empty-library experience
 - Add, replace, and remove documents in the current session library
 - Optional OCR for scanned pages through the local Tesseract installation
-- Source filename, page number, and relevance score on every result
+- Source filename, page, slide, or passage location and relevance score on every result
 
 ## Roadmap
 

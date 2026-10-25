@@ -90,7 +90,7 @@ def parse_evaluation_cases(csv_text: str) -> list[EvaluationCase]:
 
 
 def group_evaluation_cases(cases: list[EvaluationCase]) -> dict[str, list[EvaluationCase]]:
-    """Group page-level labels into one relevance set per query."""
+    """Group source-location labels into one relevance set per query."""
     groups: dict[str, list[EvaluationCase]] = {}
     for case in cases:
         group = groups.setdefault(case.query, [])

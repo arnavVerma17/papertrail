@@ -1,9 +1,10 @@
 import csv
 from collections import Counter
+from pathlib import Path
 
 import streamlit as st
 
-from research_assistant.pdfs import TextChunk, extract_chunks
+from research_assistant.pdfs import TextChunk, extract_document_chunks
 from research_assistant.search import embed_chunks, extract_grounded_answer, load_embedding_model, search_chunks, semantic_search_chunks
 from research_assistant.evaluation import (
     EvaluationCase,
@@ -77,7 +78,7 @@ def rebuild_library_index():
         return "Library is empty."
     try:
         st.session_state.embeddings = embed_chunks(st.session_state.chunks, get_embedding_model())
-        return f"Indexed {len(st.session_state.chunks)} passages from {len(st.session_state.processed_names)} PDF(s)."
+        return f"Indexed {len(st.session_state.chunks)} passages from {len(st.session_state.processed_names)} document(s)."
     except Exception as error:
         return f"Keyword search is ready, but semantic indexing failed: {error}"
 
@@ -85,12 +86,18 @@ with st.sidebar:
     st.title("Papertrail")
     st.caption("Your source-grounded research library")
     st.divider()
-    with st.expander("Add research PDFs", expanded=not bool(st.session_state.processed_names)):
-        uploads = st.file_uploader("Choose PDFs", type=["pdf"], accept_multiple_files=True)
+    with st.expander("Add research documents", expanded=not bool(st.session_state.processed_names)):
+        uploads = st.file_uploader(
+            "Choose documents",
+            type=["pdf", "docx", "pptx", "txt", "md"],
+            accept_multiple_files=True,
+        )
+        has_pdf_upload = any(Path(upload.name).suffix.casefold() == ".pdf" for upload in uploads or [])
         use_ocr = st.checkbox(
-            "OCR scanned pages",
+            "OCR scanned PDFs",
             value=False,
-            help="Requires Tesseract OCR and its language data to be installed on this computer.",
+            disabled=not has_pdf_upload,
+            help="For image-only PDFs. Requires Tesseract OCR and its language data.",
         )
         ocr_language = st.text_input(
             "OCR language code(s)",
@@ -98,13 +105,13 @@ with st.sidebar:
             disabled=not use_ocr,
             help="Use Tesseract language codes; combine languages with +, such as eng+spa.",
         )
-    if st.button("Add / re-index selected PDFs", type="primary", width="stretch", disabled=not uploads):
+    if st.button("Add / re-index selected documents", type="primary", width="stretch", disabled=not uploads):
         updated_documents = dict(st.session_state.document_chunks)
         successful = 0
         with st.spinner("Reading selected documents and rebuilding the library index..."):
             for upload in uploads or []:
                 try:
-                    extracted = extract_chunks(
+                    extracted = extract_document_chunks(
                         upload.getvalue(),
                         upload.name,
                         ocr=use_ocr,
@@ -114,9 +121,12 @@ with st.sidebar:
                         updated_documents[upload.name] = extracted
                         successful += 1
                     else:
-                        st.warning(f"No selectable text found in {upload.name}; scanned PDFs need OCR.")
+                        if Path(upload.name).suffix.casefold() == ".pdf":
+                            st.warning(f"No selectable text found in {upload.name}; scanned PDFs need OCR.")
+                        else:
+                            st.warning(f"No searchable text found in {upload.name}.")
                 except Exception as error:
-                    if use_ocr:
+                    if use_ocr and Path(upload.name).suffix.casefold() == ".pdf":
                         st.error(f"Could not read {upload.name}: {error}. Check that Tesseract OCR and the '{ocr_language}' language data are installed.")
                     else:
                         st.error(f"Could not read {upload.name}: {error}")
@@ -148,7 +158,7 @@ with st.sidebar:
         st.session_state.library_notice = ""
 
 st.title("Find the evidence in your papers")
-st.markdown("Search by idea, method, or finding. Every result points back to its PDF page.")
+st.markdown("Search by idea, method, or finding. Every result points back to its page, slide, or document passage.")
 st.caption("Local retrieval · session-based documents · no API key required")
 
 chunks = st.session_state.chunks
@@ -156,14 +166,14 @@ counts = Counter(chunk.source for chunk in chunks)
 if chunks:
     m1, m2, m3 = st.columns(3)
     m1.metric("Documents", len(counts))
-    m2.metric("Pages indexed", len({(c.source, c.page) for c in chunks}))
+    m2.metric("Source locations indexed", len({(c.source, c.page) for c in chunks}))
     m3.metric("Passages ready", len(chunks))
 else:
     with st.container(border=True):
         st.subheader("Start with your research library")
-        st.write("Add one or more PDFs in the sidebar. Papertrail will index selectable text and keep each passage linked to its page.")
+        st.write("Add PDFs, Word documents, PowerPoint files, or plain text in the sidebar. Papertrail links every passage back to its source location.")
         step1, step2, step3 = st.columns(3)
-        step1.markdown("**1 · Add papers**\n\nChoose PDFs from your computer.")
+        step1.markdown("**1 · Add documents**\n\nChoose PDF, Word, PowerPoint, TXT, or Markdown files.")
         step2.markdown("**2 · Build the index**\n\nChoose whether scanned pages need OCR.")
         step3.markdown("**3 · Ask a question**\n\nCompare keyword and semantic evidence.")
 
@@ -199,7 +209,7 @@ limit = st.session_state.active_search["limit"]
 
 if query.strip():
     if not chunks:
-        st.info("Add PDFs in the sidebar and index them to start searching.")
+        st.info("Add documents in the sidebar and index them to start searching.")
     else:
         if search_mode == "Semantic":
             if st.session_state.embeddings is None:
@@ -216,7 +226,7 @@ if query.strip():
             semantic_results = semantic_search_chunks(chunks, query, st.session_state.embeddings, get_embedding_model(), limit) if st.session_state.embeddings is not None else []
             result_sets = [("Keyword matches · TF-IDF", keyword_results), ("Semantic matches · sentence embeddings", semantic_results)]
         if not any(result for _, result in result_sets):
-            st.info("No matching text found. Try different terms or check whether the PDF contains selectable text.")
+            st.info("No matching text found. Try different terms or check whether the document contains searchable text.")
         else:
             semantic_results = next((items for title, items in result_sets if title.startswith("Semantic")), None)
             answer_evidence = semantic_results if semantic_results is not None else result_sets[0][1]
@@ -225,9 +235,9 @@ if query.strip():
                 if answer_style == "Extractive":
                     answer = extract_grounded_answer(answer_evidence, query, get_embedding_model())
                     if answer:
-                        st.caption("Each sentence is copied from a retrieved passage and linked to its source page.")
+                        st.caption("Each sentence is copied from a retrieved passage and linked to its source location.")
                         for sentence, chunk, _ in answer:
-                            st.markdown(f"> {sentence}  \n> — *[{chunk.source}, page {chunk.page}]*")
+                            st.markdown(f"> {sentence}  \n> — *[{chunk.source}, {chunk.citation_location}]*")
                         review_available = True
                     else:
                         st.info("I couldn’t find a passage that clearly supports an answer. Try rephrasing the question or adding more papers.")
@@ -252,7 +262,7 @@ if query.strip():
                         st.write(generated_text)
                         for passage_number in cited_passages:
                             chunk = answer_evidence[passage_number - 1][0]
-                            with st.expander(f"[{passage_number}] {chunk.source} · page {chunk.page}"):
+                            with st.expander(f"[{passage_number}] {chunk.source} · {chunk.citation_location}"):
                                 st.write(chunk.text)
                         review_available = True
                     else:
@@ -284,23 +294,27 @@ if query.strip():
                 st.caption(f"Showing {len(results)} passages, ranked locally by cosine similarity.")
                 for chunk, score in results:
                     with st.container(border=True):
-                        st.markdown(f"**{chunk.source} · Page {chunk.page}**  \nCosine similarity · {score:.3f}")
+                        st.markdown(f"**{chunk.source} · {chunk.citation_location}**  \nCosine similarity · {score:.3f}")
                         st.write(chunk.text)
 else:
     st.info("Start by adding a few papers in the sidebar, then search for a concept, method, or finding.")
 
 with st.expander("Evaluate retrieval"):
-    st.caption("Label each relevant page for a query. Repeated query labels count as one question; these labels stay in this app session.")
+    st.caption("Label a relevant source location for each query. Locations are PDF pages, PowerPoint slides, or numbered document passages; labels stay in this app session.")
     if not chunks:
-        st.info("Index PDFs first to create evaluation cases.")
+        st.info("Index documents first to create evaluation cases.")
     else:
         available_pages = sorted({(chunk.source, chunk.page) for chunk in chunks})
+        location_labels = {
+            (chunk.source, chunk.page): chunk.citation_location
+            for chunk in chunks
+        }
         with st.form("evaluation_case_form", clear_on_submit=True):
             eval_query = st.text_input("Test question")
             expected_page = st.selectbox(
-                "Expected relevant page",
+                "Expected relevant source location",
                 [None, *available_pages],
-                format_func=lambda item: "No supporting page (unanswerable)" if item is None else f"{item[0]} · page {item[1]}",
+                format_func=lambda item: "No supporting source (unanswerable)" if item is None else f"{item[0]} · {location_labels[item]}",
             )
             expected_answerable = st.selectbox(
                 "Should these papers support an answer?",
@@ -310,7 +324,7 @@ with st.expander("Evaluate retrieval"):
             add_case = st.form_submit_button("Add evaluation case")
         if add_case and eval_query.strip():
             if expected_answerable and expected_page is None:
-                st.warning("Choose the expected relevant page for an answerable question.")
+                st.warning("Choose the expected source location for an answerable question.")
             else:
                 source, page = expected_page if expected_page is not None else (None, None)
                 new_case = EvaluationCase(eval_query.strip(), source, page, expected_answerable)
@@ -326,17 +340,17 @@ with st.expander("Evaluate retrieval"):
                     == (new_case.source, new_case.page, new_case.answerable)
                     for case in same_query
                 ):
-                    st.info("That query and page are already labeled.")
+                    st.info("That query and source location are already labeled.")
                 else:
                     st.session_state.evaluation_cases.append(new_case)
-                    st.success("Evidence page added to the evaluation set.")
+                    st.success("Evidence location added to the evaluation set.")
 
         st.download_button(
             "Download evaluation CSV template",
             data=serialize_evaluation_cases(st.session_state.evaluation_cases),
             file_name="papertrail-evaluation.csv",
             mime="text/csv",
-            help="The CSV includes your current labels, or just the column headers if none have been added yet.",
+            help="The legacy 'page' column stores a source location ID (PDF page, slide, or document passage).",
         )
         with st.form("evaluation_import_form"):
             uploaded_cases = st.file_uploader("Import labeled evaluation cases", type=["csv"])
@@ -362,12 +376,12 @@ with st.expander("Evaluate retrieval"):
                     )
                     if missing_pages:
                         missing_label = ", ".join(
-                            f"{source} · page {page}" for source, page in missing_pages[:5]
+                            f"{source} · location {page}" for source, page in missing_pages[:5]
                         )
                         extra = " and more" if len(missing_pages) > 5 else ""
                         st.error(
-                            "These source pages are not in the current indexed library: "
-                            f"{missing_label}{extra}. Check filenames and page numbers."
+                            "These source locations are not in the current indexed library: "
+                            f"{missing_label}{extra}. Check filenames and location IDs."
                         )
                     else:
                         known_cases = {
@@ -404,12 +418,12 @@ with st.expander("Evaluate retrieval"):
                 expectation = "answerable" if query_cases[0].answerable else "should abstain"
                 expected_pages = (
                     ", ".join(
-                        f"{case.source}, page {case.page}"
+                        f"{case.source}, {location_labels.get((case.source, case.page)) or 'location ' + str(case.page)}"
                         for case in query_cases
                         if case.source and case.page is not None
                     )
                     if query_cases[0].answerable
-                    else "no supporting page expected"
+                    else "no supporting source expected"
                 )
                 st.caption(f"“{query}” → {expected_pages} · {expectation}")
             if st.button("Clear evaluation cases"):
@@ -459,4 +473,4 @@ with st.expander("Evaluate retrieval"):
             st.caption("No evaluation cases yet.")
 
 with st.expander("How this first milestone works"):
-    st.write("Papertrail extracts selectable text page by page and creates overlapping passages. TF-IDF finds direct keyword overlap; semantic search uses a local sentence embedding model to find related meaning. Extractive answers copy cited source sentences. Optional abstractive answers use a local model on retrieved passages and request citations; review those citations against the source. The evaluator reports retrieval ranking, answer coverage, abstention on unanswerable questions, and manual citation support reviews.")
+    st.write("Papertrail extracts text from PDFs, Word and PowerPoint documents, and plain text files, then creates source-linked passages. TF-IDF finds direct keyword overlap; semantic search uses a local sentence embedding model to find related meaning. Extractive answers copy cited source sentences. Optional abstractive answers use a local model on retrieved passages and request citations; review those citations against the source. The evaluator reports retrieval ranking, answer coverage, abstention on unanswerable questions, and manual citation support reviews.")

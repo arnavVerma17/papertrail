@@ -1,6 +1,8 @@
-"""PDF text extraction and page-aware chunking."""
+"""Text extraction and source-aware chunking for common research documents."""
 
 from dataclasses import dataclass
+from io import BytesIO
+from pathlib import Path
 import re
 
 import fitz
@@ -11,6 +13,11 @@ class TextChunk:
     text: str
     source: str
     page: int
+    location: str | None = None
+
+    @property
+    def citation_location(self) -> str:
+        return self.location or f"Page {self.page}"
 
 
 _QUESTION_HEADING = re.compile(
@@ -73,3 +80,146 @@ def extract_chunks(
                     if start + chunk_words >= len(words):
                         break
     return chunks
+
+
+def _numbered_sections(units: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:
+    """Split numbered question-and-answer documents at question headings."""
+    headings = [index for index, (_, text) in enumerate(units) if _QUESTION_HEADING.match(text)]
+    if not headings:
+        return [units] if units else []
+    starts = ([0] if headings[0] > 0 else []) + headings
+    return [units[start : starts[index + 1] if index + 1 < len(starts) else len(units)]
+            for index, start in enumerate(starts)]
+
+
+def _chunk_units(
+    units: list[tuple[int, str]],
+    filename: str,
+    chunk_words: int,
+    overlap: int,
+    location_kind: str,
+    next_location_id: int = 1,
+    fixed_location: tuple[int, str] | None = None,
+) -> tuple[list[TextChunk], int]:
+    """Chunk text while retaining the source line or paragraph range."""
+    tokens = [
+        (word, unit_number)
+        for unit_number, text in units
+        for word in text.split()
+    ]
+    if not tokens:
+        return [], next_location_id
+
+    chunks = []
+    step = max(1, chunk_words - overlap)
+    for start in range(0, len(tokens), step):
+        window = tokens[start : start + chunk_words]
+        content = " ".join(word for word, _ in window).strip()
+        if fixed_location is None:
+            location_id = next_location_id
+            location = f"{location_kind} {window[0][1]}–{window[-1][1]}"
+            next_location_id += 1
+        else:
+            location_id, location = fixed_location
+        if content:
+            chunks.append(TextChunk(content, filename, location_id, location))
+        if start + chunk_words >= len(tokens):
+            break
+    return chunks, next_location_id
+
+
+def _extract_docx_chunks(
+    file_bytes: bytes, filename: str, chunk_words: int, overlap: int
+) -> list[TextChunk]:
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    document = Document(BytesIO(file_bytes))
+    blocks: list[tuple[int, str]] = []
+    for element in document.element.body.iterchildren():
+        if element.tag.endswith("}p"):
+            text = Paragraph(element, document).text.strip()
+        elif element.tag.endswith("}tbl"):
+            table = Table(element, document)
+            text = "\n".join(
+                " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                for row in table.rows
+            ).strip()
+        else:
+            continue
+        if text:
+            blocks.append((len(blocks) + 1, text))
+
+    chunks: list[TextChunk] = []
+    next_location_id = 1
+    for section in _numbered_sections(blocks):
+        section_chunks, next_location_id = _chunk_units(
+            section, filename, chunk_words, overlap, "Content blocks", next_location_id
+        )
+        chunks.extend(section_chunks)
+    return chunks
+
+
+def _extract_pptx_chunks(
+    file_bytes: bytes, filename: str, chunk_words: int, overlap: int
+) -> list[TextChunk]:
+    from pptx import Presentation
+
+    presentation = Presentation(BytesIO(file_bytes))
+    chunks: list[TextChunk] = []
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        units = []
+        for shape in slide.shapes:
+            if getattr(shape, "has_text_frame", False) and shape.text.strip():
+                units.append((len(units) + 1, shape.text.strip()))
+            if getattr(shape, "has_table", False):
+                table_text = "\n".join(
+                    " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    for row in shape.table.rows
+                ).strip()
+                if table_text:
+                    units.append((len(units) + 1, table_text))
+        slide_chunks, _ = _chunk_units(
+            units,
+            filename,
+            chunk_words,
+            overlap,
+            "",
+            fixed_location=(slide_number, f"Slide {slide_number}"),
+        )
+        chunks.extend(slide_chunks)
+    return chunks
+
+
+def _extract_text_chunks(
+    file_bytes: bytes, filename: str, chunk_words: int, overlap: int
+) -> list[TextChunk]:
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = file_bytes.decode("cp1252", errors="replace")
+    lines = [(line_number, line.strip()) for line_number, line in enumerate(text.splitlines(), start=1) if line.strip()]
+    chunks, _ = _chunk_units(lines, filename, chunk_words, overlap, "Lines")
+    return chunks
+
+
+def extract_document_chunks(
+    file_bytes: bytes,
+    filename: str,
+    chunk_words: int = 180,
+    overlap: int = 35,
+    ocr: bool = False,
+    ocr_language: str = "eng",
+) -> list[TextChunk]:
+    """Extract searchable text from PDF, DOCX, PPTX, TXT, or Markdown files."""
+    extension = Path(filename).suffix.casefold()
+    if extension == ".pdf":
+        return extract_chunks(file_bytes, filename, chunk_words, overlap, ocr, ocr_language)
+    if extension == ".docx":
+        return _extract_docx_chunks(file_bytes, filename, chunk_words, overlap)
+    if extension == ".pptx":
+        return _extract_pptx_chunks(file_bytes, filename, chunk_words, overlap)
+    if extension in {".txt", ".md"}:
+        return _extract_text_chunks(file_bytes, filename, chunk_words, overlap)
+    raise ValueError("Supported formats are PDF, DOCX, PPTX, TXT, and MD.")

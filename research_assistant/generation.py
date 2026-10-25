@@ -23,7 +23,7 @@ def generate_grounded_answer(query: str, results, tokenizer, model) -> tuple[str
 
     passages = []
     for index, (chunk, _) in enumerate(results[:4], start=1):
-        passages.append(f"[{index}] {chunk.source}, page {chunk.page}: {chunk.text[:1400]}")
+        passages.append(f"[{index}] {chunk.source}, {chunk.citation_location}: {chunk.text[:1400]}")
     prompt = (
         "Answer the question using only the passages below. Do not add facts from memory. "
         "Put a citation like [1] after every factual claim, using only passage numbers shown. "
