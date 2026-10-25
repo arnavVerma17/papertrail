@@ -82,9 +82,16 @@ def extract_chunks(
     return chunks
 
 
-def _numbered_sections(units: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:
-    """Split numbered question-and-answer documents at question headings."""
-    headings = [index for index, (_, text) in enumerate(units) if _QUESTION_HEADING.match(text)]
+def _numbered_sections(
+    units: list[tuple[int, str]], styled_headings: set[int] | None = None
+) -> list[list[tuple[int, str]]]:
+    """Split numbered question-and-answer documents at detected section headings."""
+    styled_headings = styled_headings or set()
+    headings = [
+        index
+        for index, (_, text) in enumerate(units)
+        if index in styled_headings or _QUESTION_HEADING.match(text)
+    ]
     if not headings:
         return [units] if units else []
     starts = ([0] if headings[0] > 0 else []) + headings
@@ -137,9 +144,14 @@ def _extract_docx_chunks(
 
     document = Document(BytesIO(file_bytes))
     blocks: list[tuple[int, str]] = []
+    styled_headings: set[int] = set()
     for element in document.element.body.iterchildren():
+        is_heading = False
         if element.tag.endswith("}p"):
-            text = Paragraph(element, document).text.strip()
+            paragraph = Paragraph(element, document)
+            text = paragraph.text.strip()
+            style_name = paragraph.style.name.casefold() if paragraph.style else ""
+            is_heading = style_name.startswith("heading") or style_name in {"title", "subtitle"}
         elif element.tag.endswith("}tbl"):
             table = Table(element, document)
             text = "\n".join(
@@ -149,11 +161,13 @@ def _extract_docx_chunks(
         else:
             continue
         if text:
+            if is_heading:
+                styled_headings.add(len(blocks))
             blocks.append((len(blocks) + 1, text))
 
     chunks: list[TextChunk] = []
     next_location_id = 1
-    for section in _numbered_sections(blocks):
+    for section in _numbered_sections(blocks, styled_headings):
         section_chunks, next_location_id = _chunk_units(
             section, filename, chunk_words, overlap, "Content blocks", next_location_id
         )

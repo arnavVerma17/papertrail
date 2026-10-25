@@ -1,6 +1,6 @@
 """Local keyword and semantic search over extracted document chunks."""
 
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 import re
@@ -9,6 +9,7 @@ from .pdfs import TextChunk
 
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+MIN_SEMANTIC_RELEVANCE = 0.28
 
 
 def load_embedding_model(model_name: str = DEFAULT_MODEL) -> SentenceTransformer:
@@ -29,13 +30,32 @@ def embed_chunks(chunks: list[TextChunk], model: SentenceTransformer):
 
 
 def semantic_search_chunks(chunks: list[TextChunk], query: str, embeddings, model: SentenceTransformer, limit: int = 5) -> list[tuple[TextChunk, float]]:
-    """Rank passages by cosine similarity in sentence embedding space."""
+    """Rank semantic matches with an exact-term boost and discard weak hits."""
     if not chunks or not query.strip() or embeddings is None:
         return []
     query_embedding = model.encode([query], normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)[0]
-    scores = embeddings @ query_embedding
-    ranked = scores.argsort()[::-1]
-    return [(chunks[int(i)], float(scores[i])) for i in ranked[:limit]]
+    semantic_scores = embeddings @ query_embedding
+    query_terms = [
+        token for token in re.findall(r"\w+", query.casefold())
+        if len(token) > 1 and token not in ENGLISH_STOP_WORDS
+    ]
+    normalized_query = " ".join(query_terms)
+    scores = []
+    for semantic_score, chunk in zip(semantic_scores, chunks):
+        text_terms = re.findall(r"\w+", chunk.text.casefold())
+        text_set = set(text_terms)
+        term_coverage = (
+            sum(term in text_set for term in query_terms) / len(query_terms)
+            if query_terms else 0.0
+        )
+        normalized_text = " ".join(text_terms)
+        phrase_match = bool(normalized_query and normalized_query in normalized_text)
+        relevance = 0.60 * float(semantic_score) + 0.25 * term_coverage + 0.15 * phrase_match
+        scores.append(relevance)
+
+    ranked = sorted(range(len(scores)), key=lambda index: scores[index], reverse=True)
+    ranked = [index for index in ranked if scores[index] >= MIN_SEMANTIC_RELEVANCE]
+    return [(chunks[i], float(scores[i])) for i in ranked[:limit]]
 
 
 def extract_grounded_answer(results: list[tuple[TextChunk, float]], query: str, model: SentenceTransformer, max_sentences: int = 3, min_score: float = 0.28) -> list[tuple[str, TextChunk, float]]:

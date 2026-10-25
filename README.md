@@ -1,6 +1,6 @@
 # Papertrail — grounded research assistant
 
-Papertrail helps you search research documents and inspect the source behind each result. It extracts text from PDF, DOCX, PPTX, TXT, and Markdown files, then ranks passages with TF-IDF or a local sentence embedding model. Citations point to PDF pages, PowerPoint slides, or document passages. It can also draft extractive or locally generated answers with source citations.
+Papertrail helps you search research documents and inspect the source behind each result. It extracts text from PDF, DOCX, PPTX, TXT, and Markdown files, then ranks passages with TF-IDF or local sentence embeddings strengthened by query-term matching. Citations point to PDF pages, PowerPoint slides, or document passages. It can also draft extractive or locally generated answers with source citations.
 
 ## Live demo
 
@@ -35,6 +35,7 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 - Source-aware citations for PDF pages, PowerPoint slides, and document passages
 - Question-aware passage chunking for numbered Q&A PDFs, with overlap for longer answers
 - Local TF-IDF and sentence embedding retrieval, with no API key required
+- Semantic ranking checks query terms and filters weak matches
 - Side-by-side retrieval comparison
 - Extractive answer drafts with source-location citations and an abstain option
 - Optional abstractive answer drafts from retrieved passages, with passage citations

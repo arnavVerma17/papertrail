@@ -288,13 +288,23 @@ if query.strip():
                 st.info("Answer drafting needs the semantic index. Re-index documents after the embedding model is available.")
             for heading, results in result_sets:
                 if not results:
-                    st.warning(f"{heading} is unavailable until semantic indexing succeeds.")
+                    if heading.startswith("Semantic") and st.session_state.embeddings is None:
+                        st.warning("Semantic search is unavailable until document indexing succeeds.")
+                    else:
+                        st.info(f"No relevant passages were found for {heading.lower()}. Try a different query or upload a source that covers it.")
                     continue
                 st.markdown(f"#### {heading}")
-                st.caption(f"Showing {len(results)} passages, ranked locally by cosine similarity.")
+                is_semantic = heading.startswith("Semantic")
+                ranking_note = (
+                    "Ranked by semantic similarity and query-term relevance."
+                    if is_semantic
+                    else "Ranked locally by TF-IDF cosine similarity."
+                )
+                score_label = "Relevance score" if is_semantic else "Cosine similarity"
+                st.caption(f"Showing {len(results)} passages. {ranking_note}")
                 for chunk, score in results:
                     with st.container(border=True):
-                        st.markdown(f"**{chunk.source} · {chunk.citation_location}**  \nCosine similarity · {score:.3f}")
+                        st.markdown(f"**{chunk.source} · {chunk.citation_location}**  \n{score_label} · {score:.3f}")
                         st.write(chunk.text)
 else:
     st.info("Start by adding a few papers in the sidebar, then search for a concept, method, or finding.")
