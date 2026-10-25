@@ -32,7 +32,7 @@ Upload PDFs from the sidebar and click **Add / re-index selected PDFs**. New fil
 ## Current features
 
 - Page-aware PDF text extraction
-- Overlapping passages to preserve nearby context
+- Question-aware passage chunking for numbered Q&A PDFs, with overlap for longer answers
 - Local TF-IDF and sentence embedding retrieval, with no API key required
 - Side-by-side retrieval comparison
 - Extractive answer drafts with page citations and an abstain option
