@@ -14,7 +14,8 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 2. Enter a concept question using wording that differs from the papers, choose a retrieval method, and click **Search papers**. Compare **Semantic**, **TF-IDF**, and **Compare** to see where the rankings differ.
 3. Open a result and verify its source location. Choose an extractive answer first, then try **Abstractive** and inspect every cited passage.
 4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, MRR, answer coverage, and abstention on questions the papers cannot answer.
-5. For an image-only scan, re-index it with **OCR scanned pages** enabled.
+5. Use **Workspace backup** to download a portable ZIP, then restore it in another session to rebuild the library and bring back its labels and reviews.
+6. For an image-only scan, re-index it with **OCR scanned PDFs** enabled.
 
 ## What to emphasize
 
@@ -22,6 +23,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 - Every passage stays attached to its source file and page, slide, or document passage.
 - The answer generator receives retrieved passages and is instructed to cite them; readers should still check those citations against the paper.
 - Documents and evaluation labels live in the Streamlit session. The Docker volume stores model files, not uploaded PDFs.
+- Workspace ZIP backups preserve original documents, extraction settings, evaluation labels, and support reviews; the semantic index is rebuilt on restore.
 - Export labeled questions as CSV to keep a reusable evaluation set; imported filenames and location IDs must match the currently indexed documents.
 
 ## Evaluation CSV

@@ -23,7 +23,7 @@ Install Docker Desktop, then run:
 docker compose up --build -d
 ```
 
-Open [http://localhost:8501](http://localhost:8501). The image includes Tesseract with English language data for optional OCR. A named volume keeps downloaded model files between container rebuilds. The first semantic index or generated answer downloads its model. Stop the app with `docker compose down`; uploaded documents remain in memory for the app session and are not saved in the volume.
+Open [http://localhost:8501](http://localhost:8501). The image includes Tesseract with English language data for optional OCR. A named volume keeps downloaded model files between container rebuilds. The first semantic index or generated answer downloads its model. Stop the app with `docker compose down`; uploaded documents remain in memory for the app session and are not saved in the volume. Use **Workspace backup** to download a ZIP that you can restore in a later session.
 
 The Compose port is bound to localhost. For a remote deployment, put Papertrail behind an access-controlled reverse proxy and forward traffic to port 8501; the app itself does not provide user authentication. To use another OCR language in Docker, add its Tesseract language package to the Dockerfile and rebuild.
 
@@ -46,6 +46,7 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 - Native, branded light and dark themes
 - Batched search form and guided empty-library experience
 - Add, replace, and remove documents in the current session library
+- Download and restore a portable ZIP backup of documents, evaluation labels, and support reviews
 - Optional OCR for scanned pages through the local Tesseract installation
 - Source filename, page, slide, or passage location and relevance score on every result
 

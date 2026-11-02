@@ -14,6 +14,7 @@ from research_assistant.evaluation import (
     serialize_evaluation_cases,
 )
 from research_assistant.generation import generate_grounded_answer, load_generator
+from research_assistant.workspace import build_workspace_archive, load_workspace_archive
 
 
 st.set_page_config(page_title="Papertrail | Research workspace", page_icon=":material/menu_book:", layout="wide")
@@ -39,6 +40,10 @@ if "document_chunks" not in st.session_state:
         name: [chunk for chunk in st.session_state.chunks if chunk.source == name]
         for name in st.session_state.processed_names
     }
+if "document_files" not in st.session_state:
+    st.session_state.document_files = {}
+if "document_extraction_settings" not in st.session_state:
+    st.session_state.document_extraction_settings = {}
 if "library_notice" not in st.session_state:
     st.session_state.library_notice = ""
 if "active_search" not in st.session_state:
@@ -107,18 +112,26 @@ with st.sidebar:
         )
     if st.button("Add / re-index selected documents", type="primary", width="stretch", disabled=not uploads):
         updated_documents = dict(st.session_state.document_chunks)
+        updated_files = dict(st.session_state.document_files)
+        updated_settings = dict(st.session_state.document_extraction_settings)
         successful = 0
         with st.spinner("Reading selected documents and rebuilding the library index..."):
             for upload in uploads or []:
                 try:
+                    file_bytes = upload.getvalue()
                     extracted = extract_document_chunks(
-                        upload.getvalue(),
+                        file_bytes,
                         upload.name,
                         ocr=use_ocr,
                         ocr_language=ocr_language.strip() or "eng",
                     )
                     if extracted:
                         updated_documents[upload.name] = extracted
+                        updated_files[upload.name] = file_bytes
+                        updated_settings[upload.name] = {
+                            "ocr": use_ocr and Path(upload.name).suffix.casefold() == ".pdf",
+                            "language": ocr_language.strip() or "eng",
+                        }
                         successful += 1
                     else:
                         if Path(upload.name).suffix.casefold() == ".pdf":
@@ -131,6 +144,9 @@ with st.sidebar:
                     else:
                         st.error(f"Could not read {upload.name}: {error}")
             st.session_state.document_chunks = updated_documents
+            if successful:
+                st.session_state.document_files = updated_files
+                st.session_state.document_extraction_settings = updated_settings
             message = rebuild_library_index() if successful else None
         if message:
             if st.session_state.embeddings is not None:
@@ -148,11 +164,92 @@ with st.sidebar:
                 if st.button(":material/delete:", key=f"remove_document_{index}", help=f"Remove {name}"):
                     with st.spinner(f"Removing {name} and rebuilding the index..."):
                         st.session_state.document_chunks.pop(name, None)
+                        st.session_state.document_files.pop(name, None)
+                        st.session_state.document_extraction_settings.pop(name, None)
                         rebuild_library_index()
                     st.session_state.library_notice = f"Removed {name} from this session's library."
                     st.rerun()
     else:
         st.caption("No documents indexed yet.")
+
+    with st.expander("Workspace backup", expanded=False):
+        st.caption("Save your source files, evaluation labels, and support reviews together. The search index is rebuilt when you restore it.")
+        if st.session_state.document_files:
+            try:
+                workspace_archive = build_workspace_archive(
+                    st.session_state.document_files,
+                    st.session_state.evaluation_cases,
+                    st.session_state.answer_reviews,
+                    st.session_state.document_extraction_settings,
+                )
+            except ValueError as error:
+                st.warning(str(error))
+            else:
+                st.download_button(
+                    "Download workspace backup",
+                    data=workspace_archive,
+                    file_name="papertrail-workspace.zip",
+                    mime="application/zip",
+                    width="stretch",
+                )
+        elif st.session_state.document_chunks:
+            st.info("The current session has indexed passages but no saved originals. Re-upload the documents to include them in a backup.")
+        else:
+            st.caption("Index a document first to create a workspace backup.")
+
+        workspace_upload = st.file_uploader(
+            "Restore a workspace backup",
+            type=["zip"],
+            key="workspace_restore_upload",
+        )
+        has_current_library = bool(st.session_state.document_chunks)
+        confirm_replace = True
+        if has_current_library:
+            confirm_replace = st.checkbox(
+                "Replace the current session library and review data",
+                value=False,
+                key="confirm_workspace_restore",
+            )
+        if st.button(
+            "Restore workspace",
+            disabled=not workspace_upload or not confirm_replace,
+            width="stretch",
+        ):
+            try:
+                bundle = load_workspace_archive(workspace_upload.getvalue())
+                restored_chunks = {}
+                for name, file_bytes in bundle.document_files.items():
+                    settings = bundle.extraction_settings.get(name, {})
+                    extracted = extract_document_chunks(
+                        file_bytes,
+                        name,
+                        ocr=settings.get("ocr") is True,
+                        ocr_language=str(settings.get("language", "eng")),
+                    )
+                    if not extracted:
+                        raise ValueError(f"No searchable text could be restored from {name}.")
+                    restored_chunks[name] = extracted
+
+                st.session_state.document_files = bundle.document_files
+                st.session_state.document_extraction_settings = bundle.extraction_settings
+                st.session_state.document_chunks = restored_chunks
+                index_message = rebuild_library_index()
+                indexed_locations = {(chunk.source, chunk.page) for chunk in st.session_state.chunks}
+                restored_cases = [
+                    case for case in bundle.evaluation_cases
+                    if not case.answerable
+                    or (case.source, case.page) in indexed_locations
+                ]
+                st.session_state.evaluation_cases = restored_cases
+                st.session_state.answer_reviews = bundle.answer_reviews
+                st.success(
+                    f"Restored {len(restored_chunks)} document(s) and "
+                    f"{len(st.session_state.chunks)} passages. {index_message}"
+                )
+                if len(restored_cases) < len(bundle.evaluation_cases):
+                    st.warning("Some saved evaluation labels no longer match the restored document locations and were skipped.")
+            except Exception as error:
+                st.error(f"Could not restore this workspace: {error}")
     if st.session_state.library_notice:
         st.success(st.session_state.library_notice)
         st.session_state.library_notice = ""
