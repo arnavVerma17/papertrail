@@ -1,5 +1,6 @@
 import csv
 from collections import Counter
+import hashlib
 from pathlib import Path
 
 import streamlit as st
@@ -14,6 +15,11 @@ from research_assistant.evaluation import (
     serialize_evaluation_cases,
 )
 from research_assistant.generation import generate_grounded_answer, load_generator
+from research_assistant.notebook import (
+    MAX_SAVED_FINDINGS,
+    create_finding,
+    render_notebook_markdown,
+)
 from research_assistant.workspace import build_workspace_archive, load_workspace_archive
 
 
@@ -44,6 +50,8 @@ if "document_files" not in st.session_state:
     st.session_state.document_files = {}
 if "document_extraction_settings" not in st.session_state:
     st.session_state.document_extraction_settings = {}
+if "saved_findings" not in st.session_state:
+    st.session_state.saved_findings = []
 if "library_notice" not in st.session_state:
     st.session_state.library_notice = ""
 if "active_search" not in st.session_state:
@@ -173,7 +181,7 @@ with st.sidebar:
         st.caption("No documents indexed yet.")
 
     with st.expander("Workspace backup", expanded=False):
-        st.caption("Save your source files, evaluation labels, and support reviews together. The search index is rebuilt when you restore it.")
+        st.caption("Save your source files, evaluation labels, answer reviews, and research notebook together. The search index is rebuilt when you restore it.")
         if st.session_state.document_files:
             try:
                 workspace_archive = build_workspace_archive(
@@ -181,6 +189,7 @@ with st.sidebar:
                     st.session_state.evaluation_cases,
                     st.session_state.answer_reviews,
                     st.session_state.document_extraction_settings,
+                    st.session_state.saved_findings,
                 )
             except ValueError as error:
                 st.warning(str(error))
@@ -242,6 +251,9 @@ with st.sidebar:
                 ]
                 st.session_state.evaluation_cases = restored_cases
                 st.session_state.answer_reviews = bundle.answer_reviews
+                for finding in st.session_state.saved_findings:
+                    st.session_state.pop(f"notebook_notes_{finding['id']}", None)
+                st.session_state.saved_findings = bundle.saved_findings
                 st.success(
                     f"Restored {len(restored_chunks)} document(s) and "
                     f"{len(st.session_state.chunks)} passages. {index_message}"
@@ -303,6 +315,8 @@ query = st.session_state.active_search["query"]
 search_mode = st.session_state.active_search["retrieval"]
 answer_style = st.session_state.active_search["answer_style"]
 limit = st.session_state.active_search["limit"]
+notebook_answer = ""
+notebook_sources: list[dict[str, str]] = []
 
 if query.strip():
     if not chunks:
@@ -332,6 +346,18 @@ if query.strip():
                 if answer_style == "Extractive":
                     answer = extract_grounded_answer(answer_evidence, query, get_embedding_model())
                     if answer:
+                        notebook_answer = "\n\n".join(
+                            f"{sentence} [{source_number}]"
+                            for source_number, (sentence, _, _) in enumerate(answer[:10], start=1)
+                        )
+                        notebook_sources = [
+                            {
+                                "filename": chunk.source,
+                                "location": chunk.citation_location,
+                                "excerpt": sentence[:2_000],
+                            }
+                            for sentence, chunk, _ in answer[:10]
+                        ]
                         st.caption("Each sentence is copied from a retrieved passage and linked to its source location.")
                         for sentence, chunk, _ in answer:
                             st.markdown(f"> {sentence}  \n> — *[{chunk.source}, {chunk.citation_location}]*")
@@ -355,6 +381,16 @@ if query.strip():
                     generated = st.session_state.generated_answers.get(answer_key)
                     if generated and generated[0]:
                         generated_text, cited_passages = generated
+                        notebook_answer = generated_text
+                        notebook_sources = [
+                            {
+                                "filename": chunk.source,
+                                "location": chunk.citation_location,
+                                "excerpt": chunk.text[:2_000],
+                            }
+                            for passage_number in cited_passages[:10]
+                            for chunk in [answer_evidence[passage_number - 1][0]]
+                        ]
                         st.caption("Locally generated from retrieved passages. Review the linked evidence before relying on it.")
                         st.write(generated_text)
                         for passage_number in cited_passages:
@@ -381,6 +417,26 @@ if query.strip():
                             st.warning("Choose whether the draft is supported before saving the review.")
                     elif review_key in st.session_state.answer_reviews:
                         st.caption(f"Your saved review for this question: {st.session_state.answer_reviews[review_key].lower()}.")
+                    if len(st.session_state.saved_findings) >= MAX_SAVED_FINDINGS:
+                        st.info(f"The notebook is full ({MAX_SAVED_FINDINGS} findings). Remove one before saving another.")
+                    else:
+                        query_key = hashlib.sha1(query.encode("utf-8")).hexdigest()[:12]
+                        with st.form(f"save_finding_{st.session_state.index_version}_{query_key}", clear_on_submit=True):
+                            finding_title = st.text_input("Notebook title", value=query, max_chars=500)
+                            finding_notes = st.text_area("Your research notes (optional)", height=90, max_chars=10_000)
+                            save_finding = st.form_submit_button("Save finding to notebook")
+                        if save_finding:
+                            st.session_state.saved_findings.insert(
+                                0,
+                                create_finding(
+                                    finding_title,
+                                    query,
+                                    notebook_answer,
+                                    notebook_sources,
+                                    finding_notes,
+                                ),
+                            )
+                            st.success("Saved this finding and its source passages to the research notebook.")
             else:
                 st.info("Answer drafting needs the semantic index. Re-index documents after the embedding model is available.")
             for heading, results in result_sets:
@@ -405,6 +461,50 @@ if query.strip():
                         st.write(chunk.text)
 else:
     st.info("Start by adding a few papers in the sidebar, then search for a concept, method, or finding.")
+
+st.subheader(f"Research notebook · {len(st.session_state.saved_findings)} saved finding(s)")
+st.caption("Keep useful answers with their cited evidence and personal notes. Download the Markdown notebook or include it in a workspace ZIP backup.")
+if st.session_state.saved_findings:
+    notebook_markdown = render_notebook_markdown(st.session_state.saved_findings)
+    st.download_button(
+        "Download research notebook (.md)",
+        data=notebook_markdown.encode("utf-8"),
+        file_name="papertrail-research-notebook.md",
+        mime="text/markdown",
+    )
+    for finding in st.session_state.saved_findings:
+        with st.expander(str(finding["title"]), expanded=False):
+            st.markdown(f"**Question:** {finding['query']}")
+            st.markdown("**Saved finding**")
+            st.write(finding["answer"])
+            sources = finding["sources"]
+            if sources:
+                st.markdown("**Cited source passages**")
+                for source_number, source in enumerate(sources, start=1):
+                    st.caption(f"[{source_number}] {source['filename']} · {source['location']}")
+                    st.write(source["excerpt"])
+            note_key = f"notebook_notes_{finding['id']}"
+            notes = st.text_area(
+                "Your notes",
+                value=str(finding["notes"]),
+                key=note_key,
+                height=100,
+                max_chars=10_000,
+            )
+            save_col, remove_col = st.columns(2)
+            with save_col:
+                if st.button("Save note", key=f"save_note_{finding['id']}", width="stretch"):
+                    finding["notes"] = notes
+                    st.success("Notebook note saved.")
+            with remove_col:
+                if st.button("Remove finding", key=f"remove_finding_{finding['id']}", width="stretch"):
+                    st.session_state.saved_findings = [
+                        item for item in st.session_state.saved_findings
+                        if item["id"] != finding["id"]
+                    ]
+                    st.rerun()
+else:
+    st.info("Save a supported extractive or generated answer to start your notebook.")
 
 with st.expander("Evaluate retrieval"):
     st.caption("Label a relevant source location for each query. Locations are PDF pages, PowerPoint slides, or numbered document passages; labels stay in this app session.")

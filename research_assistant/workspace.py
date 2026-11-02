@@ -8,6 +8,7 @@ from pathlib import PurePosixPath
 import zipfile
 
 from .evaluation import EvaluationCase, parse_evaluation_cases, serialize_evaluation_cases
+from .notebook import validate_saved_findings
 
 
 WORKSPACE_FORMAT = "papertrail-workspace"
@@ -23,6 +24,7 @@ class WorkspaceBundle:
     evaluation_cases: list[EvaluationCase]
     answer_reviews: dict[str, str]
     extraction_settings: dict[str, dict[str, object]]
+    saved_findings: list[dict[str, object]]
 
 
 def _safe_filename(filename: str) -> str:
@@ -41,6 +43,7 @@ def build_workspace_archive(
     evaluation_cases: list[EvaluationCase],
     answer_reviews: dict[str, str],
     extraction_settings: dict[str, dict[str, object]] | None = None,
+    saved_findings: list[dict[str, object]] | None = None,
 ) -> bytes:
     """Create an in-memory ZIP containing documents and portable review data."""
     if not document_files:
@@ -89,6 +92,7 @@ def build_workspace_archive(
                 for query, review in answer_reviews.items()
                 if review in {"Supported", "Unsupported"}
             },
+            "saved_findings": validate_saved_findings(saved_findings or []),
         }
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
 
@@ -115,7 +119,7 @@ def load_workspace_archive(archive_bytes: bytes) -> WorkspaceBundle:
             raise ValueError("Workspace ZIP contains duplicate file entries.")
         if "manifest.json" not in names:
             raise ValueError("This ZIP does not contain a Papertrail workspace manifest.")
-        if archive.getinfo("manifest.json").file_size > 1_000_000:
+        if archive.getinfo("manifest.json").file_size > 10_000_000:
             raise ValueError("Workspace manifest is too large.")
         total_uncompressed = sum(entry.file_size for entry in entries)
         if total_uncompressed > MAX_WORKSPACE_BYTES:
@@ -125,6 +129,8 @@ def load_workspace_archive(archive_bytes: bytes) -> WorkspaceBundle:
             manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError("Workspace manifest is missing or invalid.") from error
+        if not isinstance(manifest, dict):
+            raise ValueError("Workspace manifest must be a JSON object.")
         if manifest.get("format") != WORKSPACE_FORMAT or manifest.get("version") != WORKSPACE_VERSION:
             raise ValueError("This workspace was created by an unsupported Papertrail version.")
 
@@ -200,5 +206,12 @@ def load_workspace_archive(archive_bytes: bytes) -> WorkspaceBundle:
             and isinstance(review, str)
             and review in {"Supported", "Unsupported"}
         }
+        saved_findings = validate_saved_findings(manifest.get("saved_findings", []))
 
-    return WorkspaceBundle(document_files, evaluation_cases, answer_reviews, extraction_settings)
+    return WorkspaceBundle(
+        document_files,
+        evaluation_cases,
+        answer_reviews,
+        extraction_settings,
+        saved_findings,
+    )

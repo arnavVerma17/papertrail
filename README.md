@@ -46,7 +46,8 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 - Native, branded light and dark themes
 - Batched search form and guided empty-library experience
 - Add, replace, and remove documents in the current session library
-- Download and restore a portable ZIP backup of documents, evaluation labels, and support reviews
+- Download and restore a portable ZIP backup of documents, evaluation labels, answer reviews, and notebook findings
+- Save source-linked findings with personal notes and export a Markdown research notebook
 - Optional OCR for scanned pages through the local Tesseract installation
 - Source filename, page, slide, or passage location and relevance score on every result
 
