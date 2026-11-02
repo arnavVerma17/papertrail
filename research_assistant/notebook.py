@@ -13,7 +13,7 @@ def create_finding(
     title: str,
     query: str,
     answer: str,
-    sources: list[dict[str, str]],
+    sources: list[dict[str, object]],
     notes: str = "",
 ) -> dict[str, object]:
     """Create one validated notebook entry with stable source details."""
@@ -66,7 +66,7 @@ def validate_saved_findings(value: object) -> list[dict[str, object]]:
         ):
             raise ValueError("Workspace notebook entry has an invalid number of sources.")
         sources = []
-        for source in sources_value:
+        for source_number, source in enumerate(sources_value, start=1):
             if not isinstance(source, dict) or any(
                 not isinstance(source.get(field), str)
                 for field in ("filename", "location", "excerpt")
@@ -78,10 +78,18 @@ def validate_saved_findings(value: object) -> list[dict[str, object]]:
                 or len(source["excerpt"]) > MAX_SOURCE_EXCERPT
             ):
                 raise ValueError("Workspace notebook citation exceeds a text size limit.")
+            citation_number = source.get("citation_number", source_number)
+            if (
+                not isinstance(citation_number, int)
+                or isinstance(citation_number, bool)
+                or not 1 <= citation_number <= 10
+            ):
+                raise ValueError("Workspace notebook contains an invalid citation number.")
             sources.append({
                 "filename": source["filename"],
                 "location": source["location"],
                 "excerpt": source["excerpt"],
+                "citation_number": citation_number,
             })
 
         findings.append({
@@ -122,7 +130,7 @@ def render_notebook_markdown(findings: list[dict[str, object]]) -> str:
         if sources:
             for source_number, source in enumerate(sources, start=1):
                 lines.extend([
-                    f"{source_number}. **{source['filename']} · {source['location']}**",
+                    f"{source['citation_number']}. **{source['filename']} · {source['location']}**",
                     f"  > {source['excerpt']}",
                 ])
         else:

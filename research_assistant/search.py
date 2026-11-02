@@ -58,6 +58,39 @@ def semantic_search_chunks(chunks: list[TextChunk], query: str, embeddings, mode
     return [(chunks[i], float(scores[i])) for i in ranked[:limit]]
 
 
+def diversify_by_source(
+    results: list[tuple[TextChunk, float]], limit: int
+) -> list[tuple[TextChunk, float]]:
+    """Select the best passage per source first, then fill remaining slots round-robin."""
+    if limit <= 0:
+        return []
+    grouped: dict[str, list[tuple[TextChunk, float]]] = {}
+    for result in results:
+        grouped.setdefault(result[0].source, []).append(result)
+
+    selected = []
+    positions = {source: 0 for source in grouped}
+    for source, source_results in grouped.items():
+        if len(selected) >= limit:
+            break
+        selected.append(source_results[0])
+        positions[source] = 1
+
+    while len(selected) < limit:
+        added = False
+        for source, source_results in grouped.items():
+            position = positions[source]
+            if position < len(source_results):
+                selected.append(source_results[position])
+                positions[source] += 1
+                added = True
+                if len(selected) >= limit:
+                    break
+        if not added:
+            break
+    return selected
+
+
 def extract_grounded_answer(results: list[tuple[TextChunk, float]], query: str, model: SentenceTransformer, max_sentences: int = 3, min_score: float = 0.28) -> list[tuple[str, TextChunk, float]]:
     """Select source sentences that semantically support a query, with provenance."""
     candidates: list[tuple[str, TextChunk]] = []

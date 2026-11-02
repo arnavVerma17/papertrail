@@ -6,7 +6,14 @@ from pathlib import Path
 import streamlit as st
 
 from research_assistant.pdfs import TextChunk, extract_document_chunks
-from research_assistant.search import embed_chunks, extract_grounded_answer, load_embedding_model, search_chunks, semantic_search_chunks
+from research_assistant.search import (
+    diversify_by_source,
+    embed_chunks,
+    extract_grounded_answer,
+    load_embedding_model,
+    search_chunks,
+    semantic_search_chunks,
+)
 from research_assistant.evaluation import (
     EvaluationCase,
     group_evaluation_cases,
@@ -295,12 +302,19 @@ with st.form("paper_search_form"):
         default="Semantic",
         disabled=not chunks,
     )
+    answer_styles = ["Extractive", "Abstractive"]
+    if len(counts) >= 2 and st.session_state.embeddings is not None:
+        answer_styles.append("Compare sources")
     answer_style_input = st.segmented_control(
         "Answer style",
-        ["Extractive", "Abstractive"],
+        answer_styles,
         default="Extractive",
         disabled=not chunks,
     )
+    if len(counts) < 2:
+        st.caption("Compare sources is available after at least two documents are indexed.")
+    elif st.session_state.embeddings is None:
+        st.caption("Compare sources requires a working semantic index.")
     limit_input = st.slider("Passages to show", 1, 10, 5, disabled=not chunks)
     search_submitted = st.form_submit_button("Search papers", type="primary", width="stretch")
 if search_submitted:
@@ -322,28 +336,94 @@ if query.strip():
     if not chunks:
         st.info("Add documents in the sidebar and index them to start searching.")
     else:
+        candidate_limit = len(chunks) if answer_style == "Compare sources" else limit
+        semantic_candidates = []
+        keyword_candidates = []
         if search_mode == "Semantic":
             if st.session_state.embeddings is None:
                 st.warning("Semantic index is unavailable. Re-index the documents after installing the embedding dependency, or switch to TF-IDF.")
-                results = []
             else:
-                results = semantic_search_chunks(chunks, query, st.session_state.embeddings, get_embedding_model(), limit)
-            result_sets = [("Semantic matches", results)]
+                semantic_candidates = semantic_search_chunks(
+                    chunks, query, st.session_state.embeddings, get_embedding_model(), candidate_limit
+                )
+            result_sets = [("Semantic matches", semantic_candidates[:limit])]
         elif search_mode == "TF-IDF":
-            results = search_chunks(chunks, query, limit)
-            result_sets = [("Keyword matches", results)]
+            keyword_candidates = search_chunks(chunks, query, candidate_limit)
+            result_sets = [("Keyword matches", keyword_candidates[:limit])]
         else:
-            keyword_results = search_chunks(chunks, query, limit)
-            semantic_results = semantic_search_chunks(chunks, query, st.session_state.embeddings, get_embedding_model(), limit) if st.session_state.embeddings is not None else []
-            result_sets = [("Keyword matches · TF-IDF", keyword_results), ("Semantic matches · sentence embeddings", semantic_results)]
+            keyword_candidates = search_chunks(chunks, query, candidate_limit)
+            semantic_candidates = (
+                semantic_search_chunks(
+                    chunks, query, st.session_state.embeddings, get_embedding_model(), candidate_limit
+                )
+                if st.session_state.embeddings is not None
+                else []
+            )
+            result_sets = [
+                ("Keyword matches · TF-IDF", keyword_candidates[:limit]),
+                ("Semantic matches · sentence embeddings", semantic_candidates[:limit]),
+            ]
         if not any(result for _, result in result_sets):
             st.info("No matching text found. Try different terms or check whether the document contains searchable text.")
         else:
-            semantic_results = next((items for title, items in result_sets if title.startswith("Semantic")), None)
-            answer_evidence = semantic_results if semantic_results is not None else result_sets[0][1]
+            answer_evidence = semantic_candidates or keyword_candidates
+            if answer_style == "Compare sources":
+                answer_evidence = diversify_by_source(answer_evidence, max(limit, 2))
             if st.session_state.embeddings is not None and answer_evidence:
-                st.markdown("### Evidence-based answer")
-                if answer_style == "Extractive":
+                answer_heading = "### Cross-source comparison" if answer_style == "Compare sources" else "### Evidence-based answer"
+                st.markdown(answer_heading)
+                source_count = len({chunk.source for chunk, _ in answer_evidence})
+                if answer_style == "Compare sources" and source_count < 2:
+                    st.info("I couldn’t find relevant evidence in at least two different documents. Try a broader question or add another source.")
+                    review_available = False
+                elif answer_style == "Compare sources":
+                    st.caption(f"Evidence is balanced across {source_count} documents. Check these passages before generating a comparison.")
+                    with st.expander("Source comparison evidence", expanded=True):
+                        for source_number, (chunk, _) in enumerate(answer_evidence[:4], start=1):
+                            st.caption(f"[{source_number}] {chunk.source} · {chunk.citation_location}")
+                            st.write(chunk.text)
+                    comparison_mode = True
+                    answer_key = f"{query.strip()}::{search_mode}::{answer_style}::{st.session_state.index_version}"
+                    if st.button("Generate source comparison", type="primary"):
+                        try:
+                            with st.spinner("Loading the local answer model and comparing sources..."):
+                                tokenizer, generator = get_answer_generator()
+                                generated_text, cited_passages = generate_grounded_answer(
+                                    query,
+                                    answer_evidence[:4],
+                                    tokenizer,
+                                    generator,
+                                    comparison=True,
+                                )
+                            st.session_state.generated_answers[answer_key] = (generated_text, cited_passages)
+                            st.session_state.answer_outcomes[query.strip()] = bool(generated_text)
+                        except Exception as error:
+                            st.error(f"Local source comparison failed: {error}")
+                    generated = st.session_state.generated_answers.get(answer_key)
+                    if generated and generated[0]:
+                        generated_text, cited_passages = generated
+                        notebook_answer = generated_text
+                        notebook_sources = [
+                            {
+                                "citation_number": passage_number,
+                                "filename": chunk.source,
+                                "location": chunk.citation_location,
+                                "excerpt": chunk.text[:2_000],
+                            }
+                            for passage_number in cited_passages[:10]
+                            for chunk in [answer_evidence[passage_number - 1][0]]
+                        ]
+                        st.caption("Locally generated from balanced passages across different documents. Review each citation before relying on the comparison.")
+                        st.write(generated_text)
+                        for passage_number in cited_passages:
+                            chunk = answer_evidence[passage_number - 1][0]
+                            with st.expander(f"[{passage_number}] {chunk.source} · {chunk.citation_location}"):
+                                st.write(chunk.text)
+                        review_available = True
+                    else:
+                        st.info("Generate a comparison to see a cited draft. Papertrail will abstain if the sources do not support one.")
+                        review_available = False
+                elif answer_style == "Extractive":
                     answer = extract_grounded_answer(answer_evidence, query, get_embedding_model())
                     if answer:
                         notebook_answer = "\n\n".join(
@@ -352,11 +432,12 @@ if query.strip():
                         )
                         notebook_sources = [
                             {
+                                "citation_number": source_number,
                                 "filename": chunk.source,
                                 "location": chunk.citation_location,
                                 "excerpt": sentence[:2_000],
                             }
-                            for sentence, chunk, _ in answer[:10]
+                            for source_number, (sentence, chunk, _) in enumerate(answer[:10], start=1)
                         ]
                         st.caption("Each sentence is copied from a retrieved passage and linked to its source location.")
                         for sentence, chunk, _ in answer:
@@ -366,13 +447,16 @@ if query.strip():
                         st.info("I couldn’t find a passage that clearly supports an answer. Try rephrasing the question or adding more papers.")
                         review_available = False
                 else:
-                    answer_key = f"{query.strip()}::{search_mode}::{st.session_state.index_version}"
+                    answer_key = f"{query.strip()}::{search_mode}::{answer_style}::{st.session_state.index_version}"
                     if st.button("Generate grounded answer", type="primary"):
                         try:
                             with st.spinner("Loading the local answer model and drafting..."):
                                 tokenizer, generator = get_answer_generator()
                                 generated_text, cited_passages = generate_grounded_answer(
-                                    query, answer_evidence[:4], tokenizer, generator
+                                    query,
+                                    answer_evidence[:4],
+                                    tokenizer,
+                                    generator,
                                 )
                             st.session_state.generated_answers[answer_key] = (generated_text, cited_passages)
                             st.session_state.answer_outcomes[query.strip()] = bool(generated_text)
@@ -481,7 +565,7 @@ if st.session_state.saved_findings:
             if sources:
                 st.markdown("**Cited source passages**")
                 for source_number, source in enumerate(sources, start=1):
-                    st.caption(f"[{source_number}] {source['filename']} · {source['location']}")
+                    st.caption(f"[{source['citation_number']}] {source['filename']} · {source['location']}")
                     st.write(source["excerpt"])
             note_key = f"notebook_notes_{finding['id']}"
             notes = st.text_area(

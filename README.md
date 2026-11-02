@@ -29,6 +29,8 @@ The Compose port is bound to localhost. For a remote deployment, put Papertrail 
 
 Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add / re-index selected documents**. New files join the current session library; a selected file with the same name replaces its earlier version. Use **×** beside a document to remove it. Updating the library rebuilds its index and clears evaluation labels and answer reviews tied to the previous document set. Choose semantic search, TF-IDF keyword search, or compare both. Semantic search uses `sentence-transformers/all-MiniLM-L6-v2`; it downloads the model the first time the index is built, then runs locally. Choose **Abstractive (local model)** and click **Generate grounded answer** to draft a cited answer with `google/flan-t5-small`; its model weights download on first use. Files are processed in memory for the current app session. For scanned PDFs, turn on **OCR scanned PDFs** before indexing; Tesseract and the selected language data must be installed locally.
 
+With at least two documents indexed, choose **Compare sources** to balance evidence across sources and draft a cited comparison of supported agreements and differences.
+
 ## Current features
 
 - PDF extraction with optional OCR; DOCX, PPTX, TXT, and Markdown text extraction
@@ -39,6 +41,7 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 - Side-by-side retrieval comparison
 - Extractive answer drafts with source-location citations and an abstain option
 - Optional abstractive answer drafts from retrieved passages, with passage citations
+- Cross-source comparison mode that balances evidence across documents and cites supported agreements or differences
 - Session based evaluation with Hit@k, MRR, answer coverage, abstention, and citation reviews
 - Downloadable and importable CSV evaluation sets with multiple relevant pages per question
 - Starter retrieval benchmark with labeled answerable and unanswerable questions for two NLP papers
@@ -57,6 +60,7 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 2. Add abstractive answer generation from retrieved passages with citations and abstention. *(First local version complete; review outputs against cited sources.)*
 3. Expand the evaluation set with more labeled papers and questions. *(Multi-page CSV labels and two-paper starter benchmark ready; add and review more papers.)*
 4. Polish the portfolio demo and deployment workflow. *(Hosted deployment complete.)*
+5. Add cross-source synthesis with source-balanced evidence. *(First version complete; validate with multiple papers.)*
 
 See [DEMO.md](DEMO.md) for a one-minute product walkthrough, architecture diagram, and presentation notes.
 See [data/evaluation/README.md](data/evaluation/README.md) for the starter benchmark and source PDFs.
