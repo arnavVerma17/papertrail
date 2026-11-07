@@ -7,6 +7,36 @@ from uuid import uuid4
 MAX_SAVED_FINDINGS = 100
 MAX_SOURCES_PER_FINDING = 10
 MAX_SOURCE_EXCERPT = 2_000
+MAX_TAGS_PER_FINDING = 20
+MAX_TAG_LENGTH = 40
+
+
+def parse_tags(value: str | list[str]) -> list[str]:
+    """Normalize comma-separated or saved tags, keeping unique labels in order."""
+    if isinstance(value, str):
+        raw_tags = value.split(",")
+    elif isinstance(value, list):
+        raw_tags = value
+    else:
+        raise ValueError("Notebook tags must be a comma-separated string or a list.")
+    if len(raw_tags) > MAX_TAGS_PER_FINDING:
+        raise ValueError(f"A finding can have at most {MAX_TAGS_PER_FINDING} tags.")
+
+    tags = []
+    seen = set()
+    for raw_tag in raw_tags:
+        if not isinstance(raw_tag, str):
+            raise ValueError("Notebook tags must be text.")
+        tag = raw_tag.strip()
+        if not tag:
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            raise ValueError(f"Each notebook tag must be {MAX_TAG_LENGTH} characters or fewer.")
+        normalized = tag.casefold()
+        if normalized not in seen:
+            tags.append(tag)
+            seen.add(normalized)
+    return tags
 
 
 def create_finding(
@@ -15,6 +45,7 @@ def create_finding(
     answer: str,
     sources: list[dict[str, object]],
     notes: str = "",
+    tags: str | list[str] | None = None,
 ) -> dict[str, object]:
     """Create one validated notebook entry with stable source details."""
     finding = {
@@ -24,6 +55,7 @@ def create_finding(
         "answer": answer.strip(),
         "sources": sources,
         "notes": notes.strip(),
+        "tags": parse_tags(tags or []),
         "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     return validate_saved_findings([finding])[0]
@@ -92,6 +124,8 @@ def validate_saved_findings(value: object) -> list[dict[str, object]]:
                 "citation_number": citation_number,
             })
 
+        tags = parse_tags(item.get("tags", []))
+
         findings.append({
             "id": finding_id,
             "title": item["title"],
@@ -99,6 +133,7 @@ def validate_saved_findings(value: object) -> list[dict[str, object]]:
             "answer": item["answer"],
             "sources": sources,
             "notes": item["notes"],
+            "tags": tags,
             "saved_at": item["saved_at"],
         })
     return findings
@@ -119,6 +154,10 @@ def render_notebook_markdown(findings: list[dict[str, object]]) -> str:
             f"**Question:** {finding['query']}",
             f"**Saved:** {finding['saved_at']}",
             "",
+        ])
+        if finding["tags"]:
+            lines.extend([f"**Tags:** {', '.join(finding['tags'])}", ""])
+        lines.extend([
             "### Finding",
             "",
             str(finding["answer"]),

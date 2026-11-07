@@ -26,6 +26,7 @@ from research_assistant.generation import generate_grounded_answer, load_generat
 from research_assistant.notebook import (
     MAX_SAVED_FINDINGS,
     create_finding,
+    parse_tags,
     render_notebook_markdown,
 )
 from research_assistant.workspace import build_workspace_archive, load_workspace_archive
@@ -514,20 +515,28 @@ if query.strip():
                         query_key = hashlib.sha1(query.encode("utf-8")).hexdigest()[:12]
                         with st.form(f"save_finding_{st.session_state.index_version}_{query_key}", clear_on_submit=True):
                             finding_title = st.text_input("Notebook title", value=query, max_chars=500)
+                            finding_tags = st.text_input(
+                                "Tags (comma-separated)", max_chars=1_000,
+                                help="Use short labels such as methods, results, or limitations.",
+                            )
                             finding_notes = st.text_area("Your research notes (optional)", height=90, max_chars=10_000)
                             save_finding = st.form_submit_button("Save finding to notebook")
                         if save_finding:
-                            st.session_state.saved_findings.insert(
-                                0,
-                                create_finding(
-                                    finding_title,
-                                    query,
-                                    notebook_answer,
-                                    notebook_sources,
-                                    finding_notes,
-                                ),
-                            )
-                            st.success("Saved this finding and its source passages to the research notebook.")
+                            try:
+                                st.session_state.saved_findings.insert(
+                                    0,
+                                    create_finding(
+                                        finding_title,
+                                        query,
+                                        notebook_answer,
+                                        notebook_sources,
+                                        finding_notes,
+                                        finding_tags,
+                                    ),
+                                )
+                                st.success("Saved this finding, tags, and source passages to the research notebook.")
+                            except ValueError as error:
+                                st.error(f"Could not save this finding: {error}")
             else:
                 st.info("Answer drafting needs the semantic index. Re-index documents after the embedding model is available.")
             for heading, results in result_sets:
@@ -662,8 +671,39 @@ if chat_prompt:
             st.error(error_reply)
 
 st.subheader(f"Research notebook · {len(st.session_state.saved_findings)} saved finding(s)")
-st.caption("Keep useful answers with their cited evidence and personal notes. Download the Markdown notebook or include it in a workspace ZIP backup.")
+st.caption("Search and tag findings to keep your research organized. Saved tags and notes are included in Markdown exports and workspace ZIP backups.")
 if st.session_state.saved_findings:
+    tag_options = sorted(
+        {
+            tag
+            for finding in st.session_state.saved_findings
+            for tag in finding.get("tags", [])
+        },
+        key=str.casefold,
+    )
+    filter_col, tag_col = st.columns([2, 1])
+    with filter_col:
+        notebook_search = st.text_input("Search notebook", placeholder="Title, question, answer, note, or source")
+    with tag_col:
+        selected_tags = st.multiselect("Filter by tags", tag_options)
+    normalized_tags = {tag.casefold() for tag in selected_tags}
+    search_terms = notebook_search.casefold().strip()
+    visible_findings = []
+    for finding in st.session_state.saved_findings:
+        searchable_text = " ".join([
+            str(finding.get("title", "")),
+            str(finding.get("query", "")),
+            str(finding.get("answer", "")),
+            str(finding.get("notes", "")),
+            " ".join(str(source.get("filename", "")) for source in finding.get("sources", [])),
+            " ".join(str(tag) for tag in finding.get("tags", [])),
+        ]).casefold()
+        finding_tags = {str(tag).casefold() for tag in finding.get("tags", [])}
+        if (not search_terms or search_terms in searchable_text) and normalized_tags.issubset(finding_tags):
+            visible_findings.append(finding)
+    st.caption(f"Showing {len(visible_findings)} of {len(st.session_state.saved_findings)} findings. Selected tag filters all apply.")
+    if not visible_findings:
+        st.info("No findings match these filters. Clear the search or choose different tags.")
     notebook_markdown = render_notebook_markdown(st.session_state.saved_findings)
     st.download_button(
         "Download research notebook (.md)",
@@ -671,9 +711,11 @@ if st.session_state.saved_findings:
         file_name="papertrail-research-notebook.md",
         mime="text/markdown",
     )
-    for finding in st.session_state.saved_findings:
+    for finding in visible_findings:
         with st.expander(str(finding["title"]), expanded=False):
             st.markdown(f"**Question:** {finding['query']}")
+            if finding.get("tags"):
+                st.caption("Tags · " + " · ".join(finding["tags"]))
             st.markdown("**Saved finding**")
             st.write(finding["answer"])
             sources = finding["sources"]
@@ -690,11 +732,22 @@ if st.session_state.saved_findings:
                 height=100,
                 max_chars=10_000,
             )
+            tags_key = f"notebook_tags_{finding['id']}"
+            tags = st.text_input(
+                "Tags (comma-separated)",
+                value=", ".join(finding.get("tags", [])),
+                key=tags_key,
+                max_chars=1_000,
+            )
             save_col, remove_col = st.columns(2)
             with save_col:
-                if st.button("Save note", key=f"save_note_{finding['id']}", width="stretch"):
-                    finding["notes"] = notes
-                    st.success("Notebook note saved.")
+                if st.button("Save note and tags", key=f"save_note_{finding['id']}", width="stretch"):
+                    try:
+                        finding["notes"] = notes
+                        finding["tags"] = parse_tags(tags)
+                        st.success("Notebook note and tags saved.")
+                    except ValueError as error:
+                        st.error(f"Could not save notebook tags: {error}")
             with remove_col:
                 if st.button("Remove finding", key=f"remove_finding_{finding['id']}", width="stretch"):
                     st.session_state.saved_findings = [
@@ -703,7 +756,7 @@ if st.session_state.saved_findings:
                     ]
                     st.rerun()
 else:
-    st.info("Save a supported extractive or generated answer to start your notebook.")
+    st.info("Save a supported answer or cited chat reply to start your notebook.")
 
 with st.expander("Evaluate retrieval"):
     st.caption("Label a relevant source location for each query. Locations are PDF pages, PowerPoint slides, or numbered document passages; labels stay in this app session.")

@@ -31,7 +31,7 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 
 With at least two documents indexed, choose **Compare sources** to balance evidence across sources and draft a cited comparison of supported agreements and differences.
 
-Use **Research chat** below search results for follow-up questions. Each turn retrieves passages from the current library, keeps recent conversation context for references such as “what about its limitations?”, and shows the cited source passages under the reply. Chat stays in the current browser session and clears when the indexed library changes. Save a useful cited reply to the research notebook to keep its question, answer, and source excerpts in your workspace backup and Markdown export.
+Use **Research chat** below search results for follow-up questions. Each turn retrieves passages from the current library, keeps recent conversation context for references such as “what about its limitations?”, and shows the cited source passages under the reply. Chat stays in the current browser session and clears when the indexed library changes. Save a useful cited reply to the research notebook to keep its question, answer, and source excerpts in your workspace backup and Markdown export. Search notebook findings by text or filter them with tags such as `methods` and `limitations`.
 
 ## Current features
 
@@ -55,7 +55,7 @@ Use **Research chat** below search results for follow-up questions. Each turn re
 - Batched search form and guided empty-library experience
 - Add, replace, and remove documents in the current session library
 - Download and restore a portable ZIP backup of documents, evaluation labels, answer reviews, and notebook findings
-- Save source-linked findings with personal notes and export a Markdown research notebook
+- Search and tag source-linked notebook findings; preserve tags and notes in Markdown and workspace backups
 - Optional OCR for scanned pages through the local Tesseract installation
 - Source filename, page, slide, or passage location and relevance score on every result
 
