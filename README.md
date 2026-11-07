@@ -45,7 +45,8 @@ Use **Research chat** below search results for follow-up questions. Each turn re
 - Optional abstractive answer drafts from retrieved passages, with passage citations
 - Cross-source comparison mode that balances evidence across documents and cites supported agreements or differences
 - Session-based research chat with follow-up context and expandable cited passages
-- Session based evaluation with Hit@k, MRR, answer coverage, abstention, and citation reviews
+- Retrieval evaluation with Hit@k, Precision@k, Recall@k, MRR, nDCG@k, per-question misses, and CSV results
+- Session-based answer coverage, abstention checks, and manual citation reviews
 - Downloadable and importable CSV evaluation sets with multiple relevant pages per question
 - Starter retrieval benchmark with labeled answerable and unanswerable questions for two NLP papers
 - Manual supported/unsupported answer reviews summarized in-session
@@ -61,7 +62,7 @@ Use **Research chat** below search results for follow-up questions. Each turn re
 
 1. Add semantic retrieval with sentence embeddings and compare it against TF-IDF. *(Complete)*
 2. Add abstractive answer generation from retrieved passages with citations and abstention. *(First local version complete; review outputs against cited sources.)*
-3. Expand the evaluation set with more labeled papers and questions. *(Multi-page CSV labels and two-paper starter benchmark ready; add and review more papers.)*
+3. Expand retrieval evaluation. *(Multi-location CSV labels, Hit@k, Precision@k, Recall@k, MRR, nDCG@k, per-question misses, and downloadable results are ready; grow the labeled benchmark with more papers.)*
 4. Polish the portfolio demo and deployment workflow. *(Hosted deployment complete.)*
 5. Add cross-source synthesis with source-balanced evidence. *(First version complete; validate with multiple papers.)*
 

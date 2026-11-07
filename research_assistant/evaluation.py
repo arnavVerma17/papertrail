@@ -2,6 +2,7 @@
 
 import csv
 import io
+import math
 from dataclasses import dataclass
 
 from .pdfs import TextChunk
@@ -115,3 +116,97 @@ def score_query(
         if (chunk.source, chunk.page) in relevant_pages:
             return True, 1 / rank
     return False, 0.0
+
+
+def score_query_metrics(
+    results: list[tuple[TextChunk, float]], cases: list[EvaluationCase], k: int
+) -> dict[str, float]:
+    """Score a ranked list at unique source-location level with binary relevance."""
+    if k < 1:
+        raise ValueError("Evaluation k must be at least 1.")
+
+    relevant_locations = {
+        (case.source, case.page)
+        for case in cases
+        if case.answerable and case.source and case.page is not None
+    }
+    ranked_locations = []
+    seen_locations = set()
+    for chunk, _ in results:
+        location = (chunk.source, chunk.page)
+        if location not in seen_locations:
+            seen_locations.add(location)
+            ranked_locations.append(location)
+        if len(ranked_locations) == k:
+            break
+
+    relevant_ranks = [
+        rank for rank, location in enumerate(ranked_locations, start=1)
+        if location in relevant_locations
+    ]
+    precision = len(relevant_ranks) / k
+    recall = len(relevant_ranks) / len(relevant_locations) if relevant_locations else 0.0
+    reciprocal_rank = 1 / relevant_ranks[0] if relevant_ranks else 0.0
+    dcg = sum(1 / math.log2(rank + 1) for rank in relevant_ranks)
+    ideal_relevant = min(k, len(relevant_locations))
+    ideal_dcg = sum(1 / math.log2(rank + 1) for rank in range(1, ideal_relevant + 1))
+    return {
+        "hit": float(bool(relevant_ranks)),
+        "precision": precision,
+        "recall": recall,
+        "mrr": reciprocal_rank,
+        "ndcg": dcg / ideal_dcg if ideal_dcg else 0.0,
+    }
+
+
+def evaluate_retrieval_cases(cases, strategies, k: int) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Return per-query and aggregate retrieval metrics for answerable labels."""
+    if k < 1:
+        raise ValueError("Evaluation k must be at least 1.")
+    query_groups = {
+        query: query_cases
+        for query, query_cases in group_evaluation_cases(cases).items()
+        if query_cases[0].answerable
+    }
+    detail_rows = []
+    summary_rows = []
+    for strategy_name, retrieve in strategies:
+        strategy_rows = []
+        for query, query_cases in query_groups.items():
+            results = retrieve(query)
+            metrics = score_query_metrics(results, query_cases, k)
+            ranked_locations = []
+            seen_locations = set()
+            for chunk, _ in results:
+                location = (chunk.source, chunk.page)
+                if location in seen_locations:
+                    continue
+                seen_locations.add(location)
+                ranked_locations.append(location)
+                if len(ranked_locations) == k:
+                    break
+            row = {
+                "Retrieval": strategy_name,
+                "Question": query,
+                "Hit": bool(metrics["hit"]),
+                "Precision@k": metrics["precision"],
+                "Recall@k": metrics["recall"],
+                "MRR": metrics["mrr"],
+                "nDCG@k": metrics["ndcg"],
+                "Top source locations": "; ".join(
+                    f"{source} · {page}" for source, page in ranked_locations
+                ),
+            }
+            detail_rows.append(row)
+            strategy_rows.append(metrics)
+        if strategy_rows:
+            summary_rows.append({
+                "Retrieval": strategy_name,
+                "Hit@k": sum(row["hit"] for row in strategy_rows) / len(strategy_rows),
+                "Precision@k": sum(row["precision"] for row in strategy_rows) / len(strategy_rows),
+                "Recall@k": sum(row["recall"] for row in strategy_rows) / len(strategy_rows),
+                "MRR": sum(row["mrr"] for row in strategy_rows) / len(strategy_rows),
+                "nDCG@k": sum(row["ndcg"] for row in strategy_rows) / len(strategy_rows),
+                "Questions": len(strategy_rows),
+            })
+    return summary_rows, detail_rows

@@ -1,6 +1,7 @@
 import csv
 from collections import Counter
 import hashlib
+import io
 from pathlib import Path
 
 import streamlit as st
@@ -18,7 +19,7 @@ from research_assistant.evaluation import (
     EvaluationCase,
     group_evaluation_cases,
     parse_evaluation_cases,
-    score_query,
+    evaluate_retrieval_cases,
     serialize_evaluation_cases,
 )
 from research_assistant.generation import generate_grounded_answer, load_generator
@@ -40,6 +41,8 @@ if "embeddings" not in st.session_state:
     st.session_state.embeddings = None
 if "evaluation_cases" not in st.session_state:
     st.session_state.evaluation_cases = []
+if "evaluation_report" not in st.session_state:
+    st.session_state.evaluation_report = None
 if "answer_reviews" not in st.session_state:
     st.session_state.answer_reviews = {}
 if "answer_outcomes" not in st.session_state:
@@ -92,6 +95,7 @@ def rebuild_library_index():
     ]
     st.session_state.index_version += 1
     st.session_state.evaluation_cases = []
+    st.session_state.evaluation_report = None
     st.session_state.answer_reviews = {}
     st.session_state.answer_outcomes = {}
     st.session_state.generated_answers = {}
@@ -719,6 +723,7 @@ with st.expander("Evaluate retrieval"):
                     st.info("That query and source location are already labeled.")
                 else:
                     st.session_state.evaluation_cases.append(new_case)
+                    st.session_state.evaluation_report = None
                     st.success("Evidence location added to the evaluation set.")
 
         st.download_button(
@@ -771,6 +776,7 @@ with st.expander("Evaluate retrieval"):
                                 new_cases.append(case)
                                 known_cases.add(case_key)
                         st.session_state.evaluation_cases.extend(new_cases)
+                        st.session_state.evaluation_report = None
                         st.success(
                             f"Added {len(new_cases)} new case(s); "
                             f"skipped {len(imported_cases) - len(new_cases)} duplicate(s)."
@@ -786,6 +792,10 @@ with st.expander("Evaluate retrieval"):
             st.caption(f"Answer review: {support_rate:.0%} supported · {1 - support_rate:.0%} marked unsupported ({len(reviews)} question(s)).")
         if cases:
             case_groups = group_evaluation_cases(cases)
+            answerable_queries = {
+                query for query, query_cases in case_groups.items() if query_cases[0].answerable
+            }
+            unanswerable_queries = set(case_groups) - answerable_queries
             st.write(
                 f"{len(case_groups)} labeled question(s) across "
                 f"{len(cases)} evidence label(s) in this session"
@@ -804,38 +814,59 @@ with st.expander("Evaluate retrieval"):
                 st.caption(f"“{query}” → {expected_pages} · {expectation}")
             if st.button("Clear evaluation cases"):
                 st.session_state.evaluation_cases = []
+                st.session_state.evaluation_report = None
                 st.rerun()
             eval_k = st.slider("Evaluate top results", 1, 10, 5, key="eval_k")
             if st.button("Run retrieval evaluation", type="primary"):
                 case_groups = group_evaluation_cases(cases)
-                answerable_cases = {
-                    query: query_cases
-                    for query, query_cases in case_groups.items()
-                    if query_cases[0].answerable
-                }
                 strategies = [("TF-IDF", lambda q: search_chunks(chunks, q, eval_k))]
                 if st.session_state.embeddings is not None:
                     model = get_embedding_model()
                     strategies.append(("Semantic", lambda q: semantic_search_chunks(chunks, q, st.session_state.embeddings, model, eval_k)))
-                for strategy_name, retrieve in strategies:
-                    if answerable_cases:
-                        outcomes = [
-                            score_query(retrieve(query), query_cases)
-                            for query, query_cases in answerable_cases.items()
-                        ]
-                        hit_rate = sum(hit for hit, _ in outcomes) / len(outcomes)
-                        mrr = sum(reciprocal_rank for _, reciprocal_rank in outcomes) / len(outcomes)
-                        st.markdown(f"**{strategy_name}** · Hit@{eval_k}: {hit_rate:.0%} · MRR: {mrr:.3f}")
-                unanswerable_queries = {
-                    query for query, query_cases in case_groups.items() if not query_cases[0].answerable
-                }
+                summary_rows, detail_rows = evaluate_retrieval_cases(cases, strategies, eval_k)
                 judged_unanswerable = unanswerable_queries & set(st.session_state.answer_outcomes)
+                abstention = None
                 if judged_unanswerable:
                     false_answers = sum(st.session_state.answer_outcomes[query] for query in judged_unanswerable)
-                    st.markdown(f"**Abstention check** · Unsupported answer rate on unanswerable questions: {false_answers / len(judged_unanswerable):.0%} ({len(judged_unanswerable)} evaluated)")
+                    abstention = {
+                        "false_answer_rate": false_answers / len(judged_unanswerable),
+                        "evaluated": len(judged_unanswerable),
+                    }
+                st.session_state.evaluation_report = {
+                    "k": eval_k,
+                    "summary": summary_rows,
+                    "details": detail_rows,
+                    "abstention": abstention,
+                }
+            report = st.session_state.evaluation_report
+            if report:
+                st.markdown(f"#### Retrieval summary · k={report['k']}")
+                if report["summary"]:
+                    st.dataframe(report["summary"], hide_index=True, width="stretch")
+                    st.caption("Metrics count each unique source location once. nDCG uses binary relevance from your labeled locations.")
+                    report_buffer = io.StringIO(newline="")
+                    report_writer = csv.DictWriter(report_buffer, fieldnames=list(report["details"][0]))
+                    report_writer.writeheader()
+                    report_writer.writerows(report["details"])
+                    st.download_button(
+                        "Download per-question evaluation CSV",
+                        data=report_buffer.getvalue().encode("utf-8"),
+                        file_name="papertrail-evaluation-results.csv",
+                        mime="text/csv",
+                    )
+                    st.markdown("#### Per-question results")
+                    st.dataframe(report["details"], hide_index=True, width="stretch")
+                    misses = [row for row in report["details"] if not row["Hit"]]
+                    if misses:
+                        st.warning(f"{len(misses)} retrieval result(s) missed all labeled locations. Review their questions and top results below.")
+                else:
+                    st.info("Add at least one answerable evaluation question to score retrieval.")
+                if report["abstention"]:
+                    abstention = report["abstention"]
+                    st.markdown(f"**Abstention check** · Unsupported answer rate on unanswerable questions: {abstention['false_answer_rate']:.0%} ({abstention['evaluated']} evaluated)")
                 elif unanswerable_queries:
                     st.info("Run the abstractive answer option on your unanswerable questions to measure whether it abstains.")
-                judged_answerable = set(answerable_cases) & set(st.session_state.answer_outcomes)
+                judged_answerable = answerable_queries & set(st.session_state.answer_outcomes)
                 if judged_answerable:
                     answered = sum(st.session_state.answer_outcomes[query] for query in judged_answerable)
                     st.markdown(f"**Answer coverage** · Answerable questions answered: {answered / len(judged_answerable):.0%} ({len(judged_answerable)} evaluated)")

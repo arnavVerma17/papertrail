@@ -13,7 +13,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 1. Add two or three research documents in the sidebar and build the library index.
 2. Enter a concept question using wording that differs from the papers, choose a retrieval method, and click **Search papers**. Compare **Semantic**, **TF-IDF**, and **Compare** to see where the rankings differ. With at least two documents indexed, choose **Compare sources** to build a cited synthesis from balanced passages across documents.
 3. Open a result and verify its source location. Choose an extractive answer first, then try **Abstractive** and inspect every cited passage.
-4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, MRR, answer coverage, and abstention on questions the papers cannot answer.
+4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, Precision@k, Recall@k, MRR, and nDCG@k. Inspect per-question misses and download the results CSV.
 5. Use **Workspace backup** to download a portable ZIP, then restore it in another session to rebuild the library and bring back its labels and reviews.
 6. For an image-only scan, re-index it with **OCR scanned PDFs** enabled.
 7. Save a useful answer to the **Research notebook**, add your own notes, and export the notebook as Markdown.
@@ -65,7 +65,7 @@ flowchart LR
 | Keyword retrieval | scikit-learn TF-IDF and cosine similarity |
 | Semantic retrieval | `sentence-transformers/all-MiniLM-L6-v2` embeddings |
 | Answer drafts | Extractive sentence selection or local `google/flan-t5-small` generation |
-| Evaluation | Manually labeled relevant pages, Hit@k, MRR, answerability, citation reviews |
+| Evaluation | Manually labeled source locations, Hit@k, Precision@k, Recall@k, MRR, nDCG@k, answerability, citation reviews |
 | Interface and runtime | Streamlit, dual light/dark theme, Docker Compose |
 
 ## Run the demo
