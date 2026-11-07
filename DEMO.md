@@ -17,7 +17,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 5. Use **Workspace backup** to download a portable ZIP, then restore it in another session to rebuild the library and bring back its labels and reviews.
 6. For an image-only scan, re-index it with **OCR scanned PDFs** enabled.
 7. Save a useful answer to the **Research notebook**, add your own notes, and export the notebook as Markdown.
-8. Continue the inquiry in **Research chat**: ask a follow-up such as “What limitations do the authors mention?” and expand the citations under the reply to check its evidence.
+8. Continue the inquiry in **Research chat**: ask a follow-up such as “What limitations do the authors mention?”, expand the citations to check the evidence, and save a useful reply to the research notebook.
 
 ## What to emphasize
 

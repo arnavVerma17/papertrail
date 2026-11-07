@@ -31,7 +31,7 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 
 With at least two documents indexed, choose **Compare sources** to balance evidence across sources and draft a cited comparison of supported agreements and differences.
 
-Use **Research chat** below search results for follow-up questions. Each turn retrieves passages from the current library, keeps recent conversation context for references such as “what about its limitations?”, and shows the cited source passages under the reply. Chat stays in the current browser session and clears when the indexed library changes.
+Use **Research chat** below search results for follow-up questions. Each turn retrieves passages from the current library, keeps recent conversation context for references such as “what about its limitations?”, and shows the cited source passages under the reply. Chat stays in the current browser session and clears when the indexed library changes. Save a useful cited reply to the research notebook to keep its question, answer, and source excerpts in your workspace backup and Markdown export.
 
 ## Current features
 

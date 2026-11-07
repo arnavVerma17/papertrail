@@ -561,15 +561,35 @@ with chat_controls:
         st.session_state.research_chat = []
         st.rerun()
 
-for message in st.session_state.research_chat:
+for message_index, message in enumerate(st.session_state.research_chat):
     with st.chat_message(message["role"]):
         st.write(message["content"])
         if message["role"] == "assistant":
             for source in message.get("sources", []):
                 with st.expander(f"[{source['citation_number']}] {source['filename']} · {source['location']}"):
                     st.write(source["excerpt"])
+            if message.get("sources") and not message.get("saved_to_notebook"):
+                if len(st.session_state.saved_findings) >= MAX_SAVED_FINDINGS:
+                    st.caption(f"The notebook is full ({MAX_SAVED_FINDINGS} findings); remove one to save this reply.")
+                elif st.button("Save cited reply to research notebook", key=f"save_chat_reply_{message_index}"):
+                    question = message.get("question", "")
+                    st.session_state.saved_findings.insert(
+                        0,
+                        create_finding(
+                            question[:500],
+                            question,
+                            message["content"],
+                            message["sources"],
+                        ),
+                    )
+                    message["saved_to_notebook"] = True
+                    st.success("Saved this reply and its cited passages to the research notebook.")
+            elif message.get("saved_to_notebook"):
+                st.caption("Saved to the research notebook.")
 
-chat_prompt = st.chat_input("Ask a question or follow up about your papers", disabled=not chunks)
+chat_prompt = st.chat_input(
+    "Ask a question or follow up about your papers", max_chars=5_000, disabled=not chunks
+)
 if chat_prompt:
     st.session_state.research_chat.append({"role": "user", "content": chat_prompt})
     with st.chat_message("user"):
@@ -625,7 +645,13 @@ if chat_prompt:
                 with st.expander(f"[{source['citation_number']}] {source['filename']} · {source['location']}"):
                     st.write(source["excerpt"])
         st.session_state.research_chat.append(
-            {"role": "assistant", "content": reply, "sources": cited_sources}
+            {
+                "role": "assistant",
+                "content": reply,
+                "question": chat_prompt,
+                "sources": cited_sources,
+                "saved_to_notebook": False,
+            }
         )
     except Exception as error:
         error_reply = f"I couldn’t complete that answer: {error}"
