@@ -7,7 +7,12 @@ import json
 from pathlib import PurePosixPath
 import zipfile
 
-from .evaluation import EvaluationCase, parse_evaluation_cases, serialize_evaluation_cases
+from .evaluation import (
+    EvaluationCase,
+    group_evaluation_cases,
+    parse_evaluation_cases,
+    serialize_evaluation_cases,
+)
 from .notebook import validate_saved_findings
 
 
@@ -18,6 +23,20 @@ MAX_WORKSPACE_DOCUMENTS = 100
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
 
 
+def merge_named_documents(existing: dict, incoming: dict) -> dict:
+    """Overlay incoming named documents, replacing filename matches case-insensitively."""
+    merged = dict(existing)
+    for name, value in incoming.items():
+        existing_name = next(
+            (current_name for current_name in merged if current_name.casefold() == name.casefold()),
+            None,
+        )
+        if existing_name is not None:
+            del merged[existing_name]
+        merged[name] = value
+    return merged
+
+
 @dataclass(frozen=True)
 class WorkspaceBundle:
     document_files: dict[str, bytes]
@@ -25,6 +44,16 @@ class WorkspaceBundle:
     answer_reviews: dict[str, str]
     extraction_settings: dict[str, dict[str, object]]
     saved_findings: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class WorkspacePreview:
+    documents: list[tuple[str, int]]
+    total_bytes: int
+    evaluation_questions: int
+    answer_reviews: int
+    saved_findings: int
+    collections: list[str]
 
 
 def _safe_filename(filename: str) -> str:
@@ -214,4 +243,24 @@ def load_workspace_archive(archive_bytes: bytes) -> WorkspaceBundle:
         answer_reviews,
         extraction_settings,
         saved_findings,
+    )
+
+
+def preview_workspace_archive(archive_bytes: bytes) -> WorkspacePreview:
+    """Fully validate a backup and return a lightweight summary before restore."""
+    bundle = load_workspace_archive(archive_bytes)
+    documents = [
+        (name, len(contents)) for name, contents in bundle.document_files.items()
+    ]
+    collections = sorted(
+        {str(finding.get("collection", "General")) for finding in bundle.saved_findings},
+        key=str.casefold,
+    )
+    return WorkspacePreview(
+        documents=documents,
+        total_bytes=sum(size for _, size in documents),
+        evaluation_questions=len(group_evaluation_cases(bundle.evaluation_cases)),
+        answer_reviews=len(bundle.answer_reviews),
+        saved_findings=len(bundle.saved_findings),
+        collections=collections,
     )

@@ -14,7 +14,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 2. Enter a concept question using wording that differs from the papers, choose a retrieval method, and click **Search papers**. Compare **Semantic**, **TF-IDF**, and **Compare** to see where the rankings differ. With at least two documents indexed, choose **Compare sources** to build a cited synthesis from balanced passages across documents.
 3. Open a result and verify its source location. Choose an extractive answer first, then try **Abstractive** and inspect every cited passage.
 4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, Precision@k, Recall@k, MRR, and nDCG@k. Inspect the hit-rate and recall curves from k=1 to k=10, review per-question misses, and download both result and curve CSVs.
-5. Use **Workspace backup** to download a portable ZIP, then restore it in another session to rebuild the library and bring back its labels and reviews.
+5. Use **Workspace backup** to download a portable ZIP. Select a backup to preview its contents, then restore it into an empty session, merge it with the current library, or replace the current library after confirmation.
 6. For an image-only scan, re-index it with **OCR scanned PDFs** enabled.
 7. Save a useful answer to the **Research notebook**, assign a collection and tags, search or filter saved findings, add notes, and export the notebook as Markdown.
 8. Continue the inquiry in **Research chat**: ask a follow-up such as “What limitations do the authors mention?”, expand the citations to check the evidence, and save a useful reply to the research notebook.
@@ -25,7 +25,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 - Every passage stays attached to its source file and page, slide, or document passage.
 - The answer generator receives retrieved passages and is instructed to cite them; readers should still check those citations against the paper.
 - Documents and evaluation labels live in the Streamlit session. The Docker volume stores model files, not uploaded PDFs.
-- Workspace ZIP backups preserve original documents, extraction settings, evaluation labels, answer reviews, and notebook findings; the semantic index is rebuilt on restore.
+- Workspace ZIP backups preserve original documents, extraction settings, evaluation labels, answer reviews, and notebook findings; the semantic index is rebuilt on restore. Merge mode keeps other current documents and combines compatible labels, reviews, and findings; same-name files use the restored copy, and labels tied to changed file contents are cleared.
 - Saved findings keep the question, cited passages, and your notes together; export them as Markdown for reports or study notes.
 - Notebook tags and text search help organize findings; both tags and notes travel with workspace backups and Markdown exports.
 - Collections group findings by paper, project, or topic, and appear in the app, Markdown export, and workspace backup.

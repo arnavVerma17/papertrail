@@ -23,7 +23,7 @@ Install Docker Desktop, then run:
 docker compose up --build -d
 ```
 
-Open [http://localhost:8501](http://localhost:8501). The image includes Tesseract with English language data for optional OCR. A named volume keeps downloaded model files between container rebuilds. The first semantic index or generated answer downloads its model. Stop the app with `docker compose down`; uploaded documents remain in memory for the app session and are not saved in the volume. Use **Workspace backup** to download a ZIP that you can restore in a later session.
+Open [http://localhost:8501](http://localhost:8501). The image includes Tesseract with English language data for optional OCR. A named volume keeps downloaded model files between container rebuilds. The first semantic index or generated answer downloads its model. Stop the app with `docker compose down`; uploaded documents remain in memory for the app session and are not saved in the volume. Use **Workspace backup** to download a ZIP that you can restore in a later session. Papertrail validates and previews a selected backup's documents, size, evaluation questions, reviews, and notebook collections before enabling restore. With an existing library, restoration can merge documents and compatible review data; a document with a matching filename is replaced by the backup copy, and labels tied to changed file contents are cleared.
 
 The Compose port is bound to localhost. For a remote deployment, put Papertrail behind an access-controlled reverse proxy and forward traffic to port 8501; the app itself does not provide user authentication. To use another OCR language in Docker, add its Tesseract language package to the Dockerfile and rebuild.
 
@@ -55,6 +55,7 @@ Use **Research chat** below search results for follow-up questions. Each turn re
 - Batched search form and guided empty-library experience
 - Add, replace, and remove documents in the current session library
 - Download and restore a portable ZIP backup of documents, evaluation labels, answer reviews, and notebook findings
+- Preview and validate workspace backup contents before restoring
 - Organize notebook findings into collections; search and filter by text and tags, preserved in Markdown and workspace backups
 - Optional OCR for scanned pages through the local Tesseract installation
 - Source filename, page, slide, or passage location and relevance score on every result

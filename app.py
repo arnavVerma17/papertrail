@@ -30,7 +30,14 @@ from research_assistant.notebook import (
     parse_tags,
     render_notebook_markdown,
 )
-from research_assistant.workspace import build_workspace_archive, load_workspace_archive
+from research_assistant.workspace import (
+    MAX_WORKSPACE_BYTES,
+    MAX_WORKSPACE_DOCUMENTS,
+    build_workspace_archive,
+    load_workspace_archive,
+    merge_named_documents,
+    preview_workspace_archive,
+)
 
 
 st.set_page_config(page_title="Papertrail | Research workspace", page_icon=":material/menu_book:", layout="wide")
@@ -197,7 +204,7 @@ with st.sidebar:
         st.caption("No documents indexed yet.")
 
     with st.expander("Workspace backup", expanded=False):
-        st.caption("Save your source files, evaluation labels, answer reviews, and research notebook together. The search index is rebuilt when you restore it.")
+        st.caption("Save your source files, evaluation labels, answer reviews, and research notebook together. Restoring rebuilds the index and clears the current research chat.")
         if st.session_state.document_files:
             try:
                 workspace_archive = build_workspace_archive(
@@ -227,21 +234,123 @@ with st.sidebar:
             type=["zip"],
             key="workspace_restore_upload",
         )
+        workspace_preview = None
+        preview_error = None
+        if workspace_upload:
+            workspace_bytes = workspace_upload.getvalue()
+            workspace_fingerprint = hashlib.sha256(workspace_bytes).hexdigest()
+            preview_cache = st.session_state.get("workspace_preview_cache", {})
+            if preview_cache.get("fingerprint") == workspace_fingerprint:
+                workspace_preview = preview_cache.get("preview")
+                preview_error = preview_cache.get("error")
+            else:
+                try:
+                    workspace_preview = preview_workspace_archive(workspace_bytes)
+                except ValueError as error:
+                    preview_error = str(error)
+                st.session_state.workspace_preview_cache = {
+                    "fingerprint": workspace_fingerprint,
+                    "preview": workspace_preview,
+                    "error": preview_error,
+                }
+            if preview_error:
+                st.error(f"Backup preview failed: {preview_error}")
+            elif workspace_preview:
+                total_mb = workspace_preview.total_bytes / (1024 * 1024)
+                st.caption(
+                    f"Backup preview · {len(workspace_preview.documents)} documents · {total_mb:.2f} MB · "
+                    f"{workspace_preview.evaluation_questions} evaluation questions · "
+                    f"{workspace_preview.answer_reviews} answer reviews · "
+                    f"{workspace_preview.saved_findings} notebook findings"
+                )
+                if workspace_preview.collections:
+                    st.caption("Notebook collections · " + ", ".join(workspace_preview.collections))
+                with st.expander("Show documents in this backup"):
+                    for name, size in workspace_preview.documents:
+                        size_label = f"{size / (1024 * 1024):.2f} MB" if size >= 1024 * 1024 else f"{size / 1024:.1f} KB"
+                        st.caption(f"{name} · {size_label}")
+        else:
+            st.session_state.pop("workspace_preview_cache", None)
         has_current_library = bool(st.session_state.document_chunks)
+        restore_mode = "Replace"
         confirm_replace = True
         if has_current_library:
-            confirm_replace = st.checkbox(
-                "Replace the current session library and review data",
-                value=False,
-                key="confirm_workspace_restore",
+            restore_mode = st.radio(
+                "Restore behavior",
+                ["Merge into current library", "Replace current library"],
+                index=0,
+                horizontal=True,
+                help="Merge keeps other current documents and combines compatible labels and findings. A restored file with the same name replaces its current copy; labels tied to changed contents are cleared.",
             )
+            if restore_mode == "Replace current library":
+                confirm_replace = st.checkbox(
+                    "I understand this replaces the current library and review data",
+                    value=False,
+                    key="confirm_workspace_restore",
+                )
         if st.button(
-            "Restore workspace",
-            disabled=not workspace_upload or not confirm_replace,
+            "Merge workspace" if restore_mode == "Merge into current library" else "Restore workspace",
+            disabled=not workspace_upload or not confirm_replace or workspace_preview is None,
             width="stretch",
         ):
             try:
                 bundle = load_workspace_archive(workspace_upload.getvalue())
+                merging = has_current_library and restore_mode == "Merge into current library"
+                existing_document_chunks = dict(st.session_state.document_chunks)
+                existing_document_files = dict(st.session_state.document_files)
+                existing_extraction_settings = dict(st.session_state.document_extraction_settings)
+                existing_cases = list(st.session_state.evaluation_cases)
+                existing_reviews = dict(st.session_state.answer_reviews)
+                existing_findings = list(st.session_state.saved_findings)
+                replaced_source_names = set()
+                if merging:
+                    for incoming_name, incoming_bytes in bundle.document_files.items():
+                        current_name = next(
+                            (
+                                name for name in existing_document_chunks
+                                if name.casefold() == incoming_name.casefold()
+                            ),
+                            None,
+                        )
+                        if current_name is not None and (
+                            current_name != incoming_name
+                            or existing_document_files.get(current_name) != incoming_bytes
+                        ):
+                            replaced_source_names.add(incoming_name.casefold())
+                invalidated_queries = {
+                    case.query
+                    for case in existing_cases
+                    if case.source and case.source.casefold() in replaced_source_names
+                }
+                if merging and replaced_source_names:
+                    existing_cases = [
+                        case for case in existing_cases
+                        if not case.source or case.source.casefold() not in replaced_source_names
+                    ]
+                    existing_reviews = {
+                        query: review for query, review in existing_reviews.items()
+                        if query not in invalidated_queries
+                    }
+                if merging:
+                    restored_files = merge_named_documents(existing_document_files, bundle.document_files)
+                    restored_settings = merge_named_documents(
+                        existing_extraction_settings, bundle.extraction_settings
+                    )
+                else:
+                    restored_files = bundle.document_files
+                    restored_settings = bundle.extraction_settings
+
+                if len(restored_files) > MAX_WORKSPACE_DOCUMENTS:
+                    raise ValueError(
+                        f"The merged library would have more than {MAX_WORKSPACE_DOCUMENTS} documents. "
+                        "Remove documents or restore the backup by replacing the current library."
+                    )
+                if sum(len(contents) for contents in restored_files.values()) > MAX_WORKSPACE_BYTES:
+                    raise ValueError(
+                        "The merged documents exceed the 100 MB workspace backup limit. "
+                        "Remove documents or restore the backup by replacing the current library."
+                    )
+
                 restored_chunks = {}
                 for name, file_bytes in bundle.document_files.items():
                     settings = bundle.extraction_settings.get(name, {})
@@ -255,27 +364,67 @@ with st.sidebar:
                         raise ValueError(f"No searchable text could be restored from {name}.")
                     restored_chunks[name] = extracted
 
-                st.session_state.document_files = bundle.document_files
-                st.session_state.document_extraction_settings = bundle.extraction_settings
+                if merging:
+                    restored_chunks = merge_named_documents(existing_document_chunks, restored_chunks)
+
+                st.session_state.document_files = restored_files
+                st.session_state.document_extraction_settings = restored_settings
                 st.session_state.document_chunks = restored_chunks
                 index_message = rebuild_library_index()
                 indexed_locations = {(chunk.source, chunk.page) for chunk in st.session_state.chunks}
-                restored_cases = [
-                    case for case in bundle.evaluation_cases
-                    if not case.answerable
-                    or (case.source, case.page) in indexed_locations
-                ]
+                candidate_cases = [*existing_cases, *bundle.evaluation_cases] if merging else bundle.evaluation_cases
+                restored_cases = []
+                seen_cases = set()
+                answerability_by_query = {}
+                for case in candidate_cases:
+                    previous_answerability = answerability_by_query.get(case.query)
+                    if previous_answerability is not None and previous_answerability != case.answerable:
+                        continue
+                    answerability_by_query[case.query] = case.answerable
+                    case_key = (case.query, case.source, case.page, case.answerable)
+                    if case_key in seen_cases:
+                        continue
+                    if case.answerable and (case.source, case.page) not in indexed_locations:
+                        continue
+                    seen_cases.add(case_key)
+                    restored_cases.append(case)
                 st.session_state.evaluation_cases = restored_cases
-                st.session_state.answer_reviews = bundle.answer_reviews
-                for finding in st.session_state.saved_findings:
-                    st.session_state.pop(f"notebook_notes_{finding['id']}", None)
-                st.session_state.saved_findings = bundle.saved_findings
-                st.success(
-                    f"Restored {len(restored_chunks)} document(s) and "
-                    f"{len(st.session_state.chunks)} passages. {index_message}"
+                st.session_state.answer_reviews = (
+                    {**existing_reviews, **bundle.answer_reviews} if merging else bundle.answer_reviews
                 )
-                if len(restored_cases) < len(bundle.evaluation_cases):
-                    st.warning("Some saved evaluation labels no longer match the restored document locations and were skipped.")
+                for finding in existing_findings:
+                    for key_prefix in ("notebook_notes", "notebook_tags", "notebook_collection"):
+                        st.session_state.pop(f"{key_prefix}_{finding['id']}", None)
+                if merging:
+                    merged_findings = []
+                    seen_finding_ids = set()
+                    for finding in [*existing_findings, *bundle.saved_findings]:
+                        if finding["id"] in seen_finding_ids:
+                            continue
+                        seen_finding_ids.add(finding["id"])
+                        merged_findings.append(finding)
+                    st.session_state.saved_findings = merged_findings[:MAX_SAVED_FINDINGS]
+                    findings_dropped = max(0, len(merged_findings) - MAX_SAVED_FINDINGS)
+                else:
+                    st.session_state.saved_findings = bundle.saved_findings
+                    findings_dropped = 0
+                if st.session_state.embeddings is not None:
+                    st.success(
+                        f"{'Merged' if merging else 'Restored'} workspace. The library now contains "
+                        f"{len(restored_chunks)} document(s) and {len(st.session_state.chunks)} passages."
+                    )
+                else:
+                    st.warning(f"Workspace restored, but semantic indexing did not complete: {index_message}")
+                if len(restored_cases) < len(candidate_cases):
+                    st.warning("Some duplicate, conflicting, or out-of-date evaluation labels were skipped.")
+                if invalidated_queries:
+                    st.warning(
+                        f"Cleared current evaluation labels and reviews for {len(invalidated_queries)} "
+                        "question(s) whose source files were replaced by different contents. "
+                        "Any labels and reviews from the backup were retained."
+                    )
+                if findings_dropped:
+                    st.warning(f"{findings_dropped} extra notebook finding(s) were skipped because the limit is {MAX_SAVED_FINDINGS}.")
             except Exception as error:
                 st.error(f"Could not restore this workspace: {error}")
     if st.session_state.library_notice:
