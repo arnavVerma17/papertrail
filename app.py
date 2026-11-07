@@ -26,6 +26,7 @@ from research_assistant.generation import generate_grounded_answer, load_generat
 from research_assistant.notebook import (
     MAX_SAVED_FINDINGS,
     create_finding,
+    normalize_collection,
     parse_tags,
     render_notebook_markdown,
 )
@@ -515,6 +516,10 @@ if query.strip():
                         query_key = hashlib.sha1(query.encode("utf-8")).hexdigest()[:12]
                         with st.form(f"save_finding_{st.session_state.index_version}_{query_key}", clear_on_submit=True):
                             finding_title = st.text_input("Notebook title", value=query, max_chars=500)
+                            finding_collection = st.text_input(
+                                "Collection", value="General", max_chars=60,
+                                help="Group related findings together, for example a paper title or project name.",
+                            )
                             finding_tags = st.text_input(
                                 "Tags (comma-separated)", max_chars=1_000,
                                 help="Use short labels such as methods, results, or limitations.",
@@ -532,9 +537,10 @@ if query.strip():
                                         notebook_sources,
                                         finding_notes,
                                         finding_tags,
+                                        finding_collection,
                                     ),
                                 )
-                                st.success("Saved this finding, tags, and source passages to the research notebook.")
+                                st.success("Saved this finding, collection, tags, and source passages to the research notebook.")
                             except ValueError as error:
                                 st.error(f"Could not save this finding: {error}")
             else:
@@ -671,7 +677,7 @@ if chat_prompt:
             st.error(error_reply)
 
 st.subheader(f"Research notebook · {len(st.session_state.saved_findings)} saved finding(s)")
-st.caption("Search and tag findings to keep your research organized. Saved tags and notes are included in Markdown exports and workspace ZIP backups.")
+st.caption("Group findings into collections, then search or filter them by collection and tags. Collections, tags, and notes are preserved in exports and workspace backups.")
 if st.session_state.saved_findings:
     tag_options = sorted(
         {
@@ -681,9 +687,19 @@ if st.session_state.saved_findings:
         },
         key=str.casefold,
     )
-    filter_col, tag_col = st.columns([2, 1])
+    collection_options = sorted(
+        {str(finding.get("collection", "General")) for finding in st.session_state.saved_findings},
+        key=str.casefold,
+    )
+    filter_col, collection_col, tag_col = st.columns([2, 1, 1])
     with filter_col:
         notebook_search = st.text_input("Search notebook", placeholder="Title, question, answer, note, or source")
+    with collection_col:
+        selected_collection = st.selectbox(
+            "Collection",
+            ["", *collection_options],
+            format_func=lambda value: "All collections" if not value else value,
+        )
     with tag_col:
         selected_tags = st.multiselect("Filter by tags", tag_options)
     normalized_tags = {tag.casefold() for tag in selected_tags}
@@ -696,10 +712,16 @@ if st.session_state.saved_findings:
             str(finding.get("answer", "")),
             str(finding.get("notes", "")),
             " ".join(str(source.get("filename", "")) for source in finding.get("sources", [])),
+            " ".join(str(source.get("excerpt", "")) for source in finding.get("sources", [])),
             " ".join(str(tag) for tag in finding.get("tags", [])),
+            str(finding.get("collection", "General")),
         ]).casefold()
         finding_tags = {str(tag).casefold() for tag in finding.get("tags", [])}
-        if (not search_terms or search_terms in searchable_text) and normalized_tags.issubset(finding_tags):
+        collection_matches = (
+            not selected_collection
+            or finding.get("collection", "General") == selected_collection
+        )
+        if collection_matches and (not search_terms or search_terms in searchable_text) and normalized_tags.issubset(finding_tags):
             visible_findings.append(finding)
     st.caption(f"Showing {len(visible_findings)} of {len(st.session_state.saved_findings)} findings. Selected tag filters all apply.")
     if not visible_findings:
@@ -714,6 +736,7 @@ if st.session_state.saved_findings:
     for finding in visible_findings:
         with st.expander(str(finding["title"]), expanded=False):
             st.markdown(f"**Question:** {finding['query']}")
+            st.caption(f"Collection · {finding.get('collection', 'General')}")
             if finding.get("tags"):
                 st.caption("Tags · " + " · ".join(finding["tags"]))
             st.markdown("**Saved finding**")
@@ -739,13 +762,23 @@ if st.session_state.saved_findings:
                 key=tags_key,
                 max_chars=1_000,
             )
+            collection_key = f"notebook_collection_{finding['id']}"
+            collection = st.text_input(
+                "Collection",
+                value=str(finding.get("collection", "General")),
+                key=collection_key,
+                max_chars=60,
+            )
             save_col, remove_col = st.columns(2)
             with save_col:
-                if st.button("Save note and tags", key=f"save_note_{finding['id']}", width="stretch"):
+                if st.button("Save notebook details", key=f"save_note_{finding['id']}", width="stretch"):
                     try:
+                        normalized_finding_tags = parse_tags(tags)
+                        normalized_finding_collection = normalize_collection(collection)
                         finding["notes"] = notes
-                        finding["tags"] = parse_tags(tags)
-                        st.success("Notebook note and tags saved.")
+                        finding["tags"] = normalized_finding_tags
+                        finding["collection"] = normalized_finding_collection
+                        st.success("Notebook note, tags, and collection saved.")
                     except ValueError as error:
                         st.error(f"Could not save notebook tags: {error}")
             with remove_col:

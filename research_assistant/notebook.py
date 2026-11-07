@@ -9,6 +9,17 @@ MAX_SOURCES_PER_FINDING = 10
 MAX_SOURCE_EXCERPT = 2_000
 MAX_TAGS_PER_FINDING = 20
 MAX_TAG_LENGTH = 40
+MAX_COLLECTION_LENGTH = 60
+
+
+def normalize_collection(value: str) -> str:
+    """Validate one notebook collection name, defaulting blank names to General."""
+    if not isinstance(value, str):
+        raise ValueError("Notebook collection names must be text.")
+    collection = value.strip() or "General"
+    if len(collection) > MAX_COLLECTION_LENGTH:
+        raise ValueError(f"Collection names must be {MAX_COLLECTION_LENGTH} characters or fewer.")
+    return collection
 
 
 def parse_tags(value: str | list[str]) -> list[str]:
@@ -46,6 +57,7 @@ def create_finding(
     sources: list[dict[str, object]],
     notes: str = "",
     tags: str | list[str] | None = None,
+    collection: str = "General",
 ) -> dict[str, object]:
     """Create one validated notebook entry with stable source details."""
     finding = {
@@ -56,6 +68,7 @@ def create_finding(
         "sources": sources,
         "notes": notes.strip(),
         "tags": parse_tags(tags or []),
+        "collection": normalize_collection(collection),
         "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     return validate_saved_findings([finding])[0]
@@ -125,6 +138,7 @@ def validate_saved_findings(value: object) -> list[dict[str, object]]:
             })
 
         tags = parse_tags(item.get("tags", []))
+        collection = normalize_collection(item.get("collection", "General"))
 
         findings.append({
             "id": finding_id,
@@ -134,6 +148,7 @@ def validate_saved_findings(value: object) -> list[dict[str, object]]:
             "sources": sources,
             "notes": item["notes"],
             "tags": tags,
+            "collection": collection,
             "saved_at": item["saved_at"],
         })
     return findings
@@ -155,6 +170,7 @@ def render_notebook_markdown(findings: list[dict[str, object]]) -> str:
             f"**Saved:** {finding['saved_at']}",
             "",
         ])
+        lines.extend([f"**Collection:** {finding['collection']}", ""])
         if finding["tags"]:
             lines.extend([f"**Tags:** {', '.join(finding['tags'])}", ""])
         lines.extend([
