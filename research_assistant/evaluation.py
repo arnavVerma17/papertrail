@@ -159,10 +159,14 @@ def score_query_metrics(
     }
 
 
-def evaluate_retrieval_cases(cases, strategies, k: int) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Return per-query and aggregate retrieval metrics for answerable labels."""
+def evaluate_retrieval_cases(
+    cases, strategies, k: int, max_k: int = 10
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
+    """Return summary, per-query, and depth-curve metrics for answerable labels."""
     if k < 1:
         raise ValueError("Evaluation k must be at least 1.")
+    if max_k < k:
+        raise ValueError("Maximum evaluation depth must be at least k.")
     query_groups = {
         query: query_cases
         for query, query_cases in group_evaluation_cases(cases).items()
@@ -170,12 +174,17 @@ def evaluate_retrieval_cases(cases, strategies, k: int) -> tuple[list[dict[str, 
     }
     detail_rows = []
     summary_rows = []
+    sweep_rows = []
     for strategy_name, retrieve in strategies:
         strategy_rows = []
+        sweep_metrics = {depth: [] for depth in range(1, max_k + 1)}
         for query, query_cases in query_groups.items():
             results = retrieve(query)
             metrics = score_query_metrics(results, query_cases, k)
+            for depth in sweep_metrics:
+                sweep_metrics[depth].append(score_query_metrics(results, query_cases, depth))
             ranked_locations = []
+            location_labels = {}
             seen_locations = set()
             for chunk, _ in results:
                 location = (chunk.source, chunk.page)
@@ -183,6 +192,7 @@ def evaluate_retrieval_cases(cases, strategies, k: int) -> tuple[list[dict[str, 
                     continue
                 seen_locations.add(location)
                 ranked_locations.append(location)
+                location_labels[location] = chunk.citation_location
                 if len(ranked_locations) == k:
                     break
             row = {
@@ -194,7 +204,8 @@ def evaluate_retrieval_cases(cases, strategies, k: int) -> tuple[list[dict[str, 
                 "MRR": metrics["mrr"],
                 "nDCG@k": metrics["ndcg"],
                 "Top source locations": "; ".join(
-                    f"{source} · {page}" for source, page in ranked_locations
+                    f"{source} · {location_labels[(source, page)]}"
+                    for source, page in ranked_locations
                 ),
             }
             detail_rows.append(row)
@@ -209,4 +220,11 @@ def evaluate_retrieval_cases(cases, strategies, k: int) -> tuple[list[dict[str, 
                 "nDCG@k": sum(row["ndcg"] for row in strategy_rows) / len(strategy_rows),
                 "Questions": len(strategy_rows),
             })
-    return summary_rows, detail_rows
+            for depth, depth_rows in sweep_metrics.items():
+                sweep_rows.append({
+                    "Retrieval": strategy_name,
+                    "k": depth,
+                    "Hit rate": sum(row["hit"] for row in depth_rows) / len(depth_rows),
+                    "Recall": sum(row["recall"] for row in depth_rows) / len(depth_rows),
+                })
+    return summary_rows, detail_rows, sweep_rows

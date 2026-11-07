@@ -819,11 +819,11 @@ with st.expander("Evaluate retrieval"):
             eval_k = st.slider("Evaluate top results", 1, 10, 5, key="eval_k")
             if st.button("Run retrieval evaluation", type="primary"):
                 case_groups = group_evaluation_cases(cases)
-                strategies = [("TF-IDF", lambda q: search_chunks(chunks, q, eval_k))]
+                strategies = [("TF-IDF", lambda q: search_chunks(chunks, q, 10))]
                 if st.session_state.embeddings is not None:
                     model = get_embedding_model()
-                    strategies.append(("Semantic", lambda q: semantic_search_chunks(chunks, q, st.session_state.embeddings, model, eval_k)))
-                summary_rows, detail_rows = evaluate_retrieval_cases(cases, strategies, eval_k)
+                    strategies.append(("Semantic", lambda q: semantic_search_chunks(chunks, q, st.session_state.embeddings, model, 10)))
+                summary_rows, detail_rows, sweep_rows = evaluate_retrieval_cases(cases, strategies, eval_k)
                 judged_unanswerable = unanswerable_queries & set(st.session_state.answer_outcomes)
                 abstention = None
                 if judged_unanswerable:
@@ -836,6 +836,7 @@ with st.expander("Evaluate retrieval"):
                     "k": eval_k,
                     "summary": summary_rows,
                     "details": detail_rows,
+                    "sweep": sweep_rows,
                     "abstention": abstention,
                 }
             report = st.session_state.evaluation_report
@@ -844,6 +845,37 @@ with st.expander("Evaluate retrieval"):
                 if report["summary"]:
                     st.dataframe(report["summary"], hide_index=True, width="stretch")
                     st.caption("Metrics count each unique source location once. nDCG uses binary relevance from your labeled locations.")
+                    st.markdown("#### Retrieval quality as result depth changes")
+                    retrieval_names = list(dict.fromkeys(row["Retrieval"] for row in report["sweep"]))
+                    for metric_name, chart_label in (("Hit rate", "Hit rate"), ("Recall", "Recall")):
+                        sweep_chart = []
+                        for depth in range(1, 11):
+                            point = {"k": depth}
+                            point.update({
+                                row["Retrieval"]: row[metric_name]
+                                for row in report["sweep"]
+                                if row["k"] == depth
+                            })
+                            sweep_chart.append(point)
+                        st.line_chart(
+                            sweep_chart,
+                            x="k",
+                            y=retrieval_names,
+                            x_label="Number of source locations in results (k)",
+                            y_label=chart_label,
+                            alt=f"{chart_label} across top source locations for each retrieval method",
+                        )
+                    st.caption("Hit rate shows the share of answerable questions with at least one labeled location in the top k. Recall shows the share of all labeled locations retrieved.")
+                    sweep_buffer = io.StringIO(newline="")
+                    sweep_writer = csv.DictWriter(sweep_buffer, fieldnames=list(report["sweep"][0]))
+                    sweep_writer.writeheader()
+                    sweep_writer.writerows(report["sweep"])
+                    st.download_button(
+                        "Download k-depth curve data",
+                        data=sweep_buffer.getvalue().encode("utf-8"),
+                        file_name="papertrail-retrieval-depth.csv",
+                        mime="text/csv",
+                    )
                     report_buffer = io.StringIO(newline="")
                     report_writer = csv.DictWriter(report_buffer, fieldnames=list(report["details"][0]))
                     report_writer.writeheader()

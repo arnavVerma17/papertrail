@@ -13,7 +13,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 1. Add two or three research documents in the sidebar and build the library index.
 2. Enter a concept question using wording that differs from the papers, choose a retrieval method, and click **Search papers**. Compare **Semantic**, **TF-IDF**, and **Compare** to see where the rankings differ. With at least two documents indexed, choose **Compare sources** to build a cited synthesis from balanced passages across documents.
 3. Open a result and verify its source location. Choose an extractive answer first, then try **Abstractive** and inspect every cited passage.
-4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, Precision@k, Recall@k, MRR, and nDCG@k. Inspect per-question misses and download the results CSV.
+4. Mark the answer **Supported** or **Unsupported**. In **Evaluate retrieval**, add labeled questions or import a CSV set, then compare Hit@k, Precision@k, Recall@k, MRR, and nDCG@k. Inspect the hit-rate and recall curves from k=1 to k=10, review per-question misses, and download both result and curve CSVs.
 5. Use **Workspace backup** to download a portable ZIP, then restore it in another session to rebuild the library and bring back its labels and reviews.
 6. For an image-only scan, re-index it with **OCR scanned PDFs** enabled.
 7. Save a useful answer to the **Research notebook**, add your own notes, and export the notebook as Markdown.
