@@ -17,7 +17,7 @@ def load_generator(model_name: str = MODEL_NAME):
 
 
 def generate_grounded_answer(
-    query: str, results, tokenizer, model, comparison: bool = False
+    query: str, results, tokenizer, model, comparison: bool = False, conversation: list[dict[str, str]] | None = None
 ) -> tuple[str, list[int]]:
     """Generate an answer constrained to retrieved context and require citations."""
     if not results or results[0][1] < 0.28:
@@ -27,7 +27,7 @@ def generate_grounded_answer(
 
     passages = []
     for index, (chunk, _) in enumerate(results[:4], start=1):
-        excerpt_limit = 420 if comparison else 1_400
+        excerpt_limit = 420 if comparison else (400 if conversation else 1_400)
         passages.append(f"[{index}] {chunk.source}, {chunk.citation_location}: {chunk.text[:excerpt_limit]}")
     if comparison:
         instruction = (
@@ -43,7 +43,22 @@ def generate_grounded_answer(
             "Put a citation like [1] after every factual claim, using only passage numbers shown. "
             "If the passages do not support an answer, reply exactly: INSUFFICIENT EVIDENCE."
         )
-    prompt = f"{instruction}\n\nQuestion: {query}\n\nPassages:\n" + "\n\n".join(passages)
+    history = ""
+    if conversation:
+        recent_turns = conversation[-2:]
+        history_lines = [
+            f"{turn['role'].capitalize()}: {turn['content'][:180]}"
+            for turn in recent_turns
+            if turn.get("role") in {"user", "assistant"} and turn.get("content")
+        ]
+        if history_lines:
+            history = (
+                "Earlier conversation (use only to resolve references in the current question; "
+                "all factual claims must still be supported by the passages):\n"
+                + "\n".join(history_lines)
+                + "\n\n"
+            )
+    prompt = f"{instruction}\n\n{history}Question: {query}\n\nPassages:\n" + "\n\n".join(passages)
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
     output = model.generate(**inputs, max_new_tokens=140, num_beams=3, early_stopping=True)
     answer = tokenizer.decode(output[0], skip_special_tokens=True).strip()

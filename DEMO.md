@@ -17,6 +17,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 5. Use **Workspace backup** to download a portable ZIP, then restore it in another session to rebuild the library and bring back its labels and reviews.
 6. For an image-only scan, re-index it with **OCR scanned PDFs** enabled.
 7. Save a useful answer to the **Research notebook**, add your own notes, and export the notebook as Markdown.
+8. Continue the inquiry in **Research chat**: ask a follow-up such as “What limitations do the authors mention?” and expand the citations under the reply to check its evidence.
 
 ## What to emphasize
 
@@ -26,6 +27,7 @@ Papertrail is a source-first research workspace for searching PDFs, Word and Pow
 - Documents and evaluation labels live in the Streamlit session. The Docker volume stores model files, not uploaded PDFs.
 - Workspace ZIP backups preserve original documents, extraction settings, evaluation labels, answer reviews, and notebook findings; the semantic index is rebuilt on restore.
 - Saved findings keep the question, cited passages, and your notes together; export them as Markdown for reports or study notes.
+- Research chat uses recent turns to resolve follow-ups, but each factual reply is grounded in newly retrieved passages; conversation history stays in the current session.
 - Export labeled questions as CSV to keep a reusable evaluation set; imported filenames and location IDs must match the currently indexed documents.
 
 ## Evaluation CSV

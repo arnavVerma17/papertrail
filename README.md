@@ -31,6 +31,8 @@ Upload PDF, DOCX, PPTX, TXT, or Markdown files from the sidebar and click **Add 
 
 With at least two documents indexed, choose **Compare sources** to balance evidence across sources and draft a cited comparison of supported agreements and differences.
 
+Use **Research chat** below search results for follow-up questions. Each turn retrieves passages from the current library, keeps recent conversation context for references such as “what about its limitations?”, and shows the cited source passages under the reply. Chat stays in the current browser session and clears when the indexed library changes.
+
 ## Current features
 
 - PDF extraction with optional OCR; DOCX, PPTX, TXT, and Markdown text extraction
@@ -42,6 +44,7 @@ With at least two documents indexed, choose **Compare sources** to balance evide
 - Extractive answer drafts with source-location citations and an abstain option
 - Optional abstractive answer drafts from retrieved passages, with passage citations
 - Cross-source comparison mode that balances evidence across documents and cites supported agreements or differences
+- Session-based research chat with follow-up context and expandable cited passages
 - Session based evaluation with Hit@k, MRR, answer coverage, abstention, and citation reviews
 - Downloadable and importable CSV evaluation sets with multiple relevant pages per question
 - Starter retrieval benchmark with labeled answerable and unanswerable questions for two NLP papers

@@ -59,6 +59,8 @@ if "document_extraction_settings" not in st.session_state:
     st.session_state.document_extraction_settings = {}
 if "saved_findings" not in st.session_state:
     st.session_state.saved_findings = []
+if "research_chat" not in st.session_state:
+    st.session_state.research_chat = []
 if "library_notice" not in st.session_state:
     st.session_state.library_notice = ""
 if "active_search" not in st.session_state:
@@ -93,6 +95,7 @@ def rebuild_library_index():
     st.session_state.answer_reviews = {}
     st.session_state.answer_outcomes = {}
     st.session_state.generated_answers = {}
+    st.session_state.research_chat = []
     st.session_state.embeddings = None
     if not st.session_state.chunks:
         return "Library is empty."
@@ -545,6 +548,88 @@ if query.strip():
                         st.write(chunk.text)
 else:
     st.info("Start by adding a few papers in the sidebar, then search for a concept, method, or finding.")
+
+st.subheader("Research chat")
+st.caption("Ask follow-up questions about your indexed papers. Replies are drafted from retrieved passages and include source locations.")
+chat_controls = st.container(horizontal=True, vertical_alignment="center")
+with chat_controls:
+    if st.button("Clear conversation", disabled=not st.session_state.research_chat):
+        st.session_state.research_chat = []
+        st.rerun()
+
+for message in st.session_state.research_chat:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+        if message["role"] == "assistant":
+            for source in message.get("sources", []):
+                with st.expander(f"[{source['citation_number']}] {source['filename']} · {source['location']}"):
+                    st.write(source["excerpt"])
+
+chat_prompt = st.chat_input("Ask a question or follow up about your papers", disabled=not chunks)
+if chat_prompt:
+    st.session_state.research_chat.append({"role": "user", "content": chat_prompt})
+    with st.chat_message("user"):
+        st.write(chat_prompt)
+
+    previous_questions = [
+        message["content"] for message in st.session_state.research_chat[:-1]
+        if message["role"] == "user"
+    ]
+    retrieval_query = chat_prompt
+    if previous_questions:
+        retrieval_query = f"Previous research question: {previous_questions[-1]}\nFollow-up question: {chat_prompt}"
+    try:
+        with st.chat_message("assistant"):
+            with st.status("Searching your papers and drafting a cited reply", expanded=False) as status:
+                if st.session_state.embeddings is not None:
+                    chat_results = semantic_search_chunks(
+                        chunks, retrieval_query, st.session_state.embeddings, get_embedding_model(), 3
+                    )
+                else:
+                    chat_results = search_chunks(chunks, retrieval_query, 3)
+                chat_history = st.session_state.research_chat[:-1]
+                if not chat_results:
+                    reply, cited_passages = (
+                        "I couldn’t find passages that clearly support an answer. Try rephrasing the question or adding a relevant source.",
+                        [],
+                    )
+                    cited_sources = []
+                else:
+                    tokenizer, generator = get_answer_generator()
+                    reply, cited_passages = generate_grounded_answer(
+                        chat_prompt,
+                        chat_results,
+                        tokenizer,
+                        generator,
+                        conversation=chat_history,
+                    )
+                    if not reply:
+                        reply = "I couldn’t find enough support in the retrieved passages to answer that reliably. Try a more specific question or search the matching passages above."
+                    cited_sources = [
+                        {
+                            "citation_number": passage_number,
+                            "filename": chunk.source,
+                            "location": chunk.citation_location,
+                            "excerpt": chunk.text[:2_000],
+                        }
+                        for passage_number in cited_passages
+                        for chunk in [chat_results[passage_number - 1][0]]
+                    ]
+                status.update(label="Reply ready", state="complete")
+            st.write(reply)
+            for source in cited_sources:
+                with st.expander(f"[{source['citation_number']}] {source['filename']} · {source['location']}"):
+                    st.write(source["excerpt"])
+        st.session_state.research_chat.append(
+            {"role": "assistant", "content": reply, "sources": cited_sources}
+        )
+    except Exception as error:
+        error_reply = f"I couldn’t complete that answer: {error}"
+        st.session_state.research_chat.append(
+            {"role": "assistant", "content": error_reply, "sources": []}
+        )
+        with st.chat_message("assistant"):
+            st.error(error_reply)
 
 st.subheader(f"Research notebook · {len(st.session_state.saved_findings)} saved finding(s)")
 st.caption("Keep useful answers with their cited evidence and personal notes. Download the Markdown notebook or include it in a workspace ZIP backup.")
